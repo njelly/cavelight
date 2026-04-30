@@ -14,6 +14,8 @@ pub struct MapData {
     pub tiles: Vec<TileType>,
     /// Grid-space coordinate of the recommended player spawn, always a floor tile.
     pub player_start: (usize, usize),
+    /// Grid-space coordinate for the campfire spawn — the floor tile farthest from `player_start`.
+    pub campfire_spawn: (usize, usize),
 }
 
 impl MapData {
@@ -43,9 +45,9 @@ pub fn generate_cave(width: usize, height: usize) -> MapData {
         tiles = smooth_pass(&tiles, width, height);
     }
 
-    let player_start = isolate_largest_region(&mut tiles, width, height);
+    let (player_start, campfire_spawn) = isolate_largest_region(&mut tiles, width, height);
 
-    MapData { width, height, tiles, player_start }
+    MapData { width, height, tiles, player_start, campfire_spawn }
 }
 
 /// Fills the map randomly with ~45% walls. Border tiles are always walls.
@@ -103,8 +105,16 @@ fn count_wall_neighbors(tiles: &[TileType], width: usize, height: usize, x: usiz
 }
 
 /// Finds all connected floor regions via BFS, walls off all but the largest, and returns
-/// the floor tile in the surviving region closest to the map center.
-fn isolate_largest_region(tiles: &mut Vec<TileType>, width: usize, height: usize) -> (usize, usize) {
+/// `(player_start, campfire_spawn)` — both guaranteed to be floor tiles in the surviving region.
+///
+/// `player_start` is the floor tile nearest the map center.
+/// `campfire_spawn` is the floor tile farthest from `player_start`, placing the campfire
+/// at the opposite end of the cave so it acts as a natural exploration goal.
+fn isolate_largest_region(
+    tiles: &mut Vec<TileType>,
+    width: usize,
+    height: usize,
+) -> ((usize, usize), (usize, usize)) {
     let mut visited = vec![false; width * height];
     let mut regions: Vec<Vec<usize>> = Vec::new();
 
@@ -117,17 +127,17 @@ fn isolate_largest_region(tiles: &mut Vec<TileType>, width: usize, height: usize
     let largest = regions.into_iter().max_by_key(|r| r.len()).unwrap_or_default();
     let largest_set: HashSet<usize> = largest.iter().copied().collect();
 
-    // Wall off every floor tile not in the largest region
+    // Wall off every floor tile not in the largest region.
     for (idx, tile) in tiles.iter_mut().enumerate() {
         if matches!(tile, TileType::Floor) && !largest_set.contains(&idx) {
             *tile = TileType::Wall;
         }
     }
 
-    // Player starts at the floor tile nearest the map center
+    // Player starts at the floor tile nearest the map center.
     let cx = width / 2;
     let cy = height / 2;
-    let start_idx = largest_set
+    let player_idx = largest_set
         .iter()
         .copied()
         .min_by_key(|&idx| {
@@ -136,8 +146,21 @@ fn isolate_largest_region(tiles: &mut Vec<TileType>, width: usize, height: usize
             dx * dx + dy * dy
         })
         .unwrap_or(cy * width + cx);
+    let player_start = (player_idx % width, player_idx / width);
 
-    (start_idx % width, start_idx / width)
+    // Campfire spawns at the floor tile farthest from the player start.
+    let campfire_idx = largest_set
+        .iter()
+        .copied()
+        .max_by_key(|&idx| {
+            let dx = (idx % width) as i32 - player_start.0 as i32;
+            let dy = (idx / width) as i32 - player_start.1 as i32;
+            dx * dx + dy * dy
+        })
+        .unwrap_or(player_idx);
+    let campfire_spawn = (campfire_idx % width, campfire_idx / width);
+
+    (player_start, campfire_spawn)
 }
 
 /// BFS flood fill from `start`, returning all reachable floor tile indices.

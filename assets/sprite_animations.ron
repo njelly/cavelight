@@ -9,4 +9,6 @@
     // Chest
     "chest_closed": (frames: [3], fps: 1.0),
     "chest_open":   (frames: [4], fps: 1.0),
+
+    "campfire": (frames: [75, 76], fps: 8),
 }
