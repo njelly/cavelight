@@ -20,7 +20,8 @@ cavelight/
 ├── src/
 │   ├── main.rs                     # Entry point; app setup and plugin registration.
 │   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera.
-│   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover + PlayerControlled components.
+│   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
+│   ├── player_input.rs             # PlayerInputPlugin — keyboard input, sprite flipping. PlayerControlled + PlayerInput components; bridges to GridMover.
 │   └── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 ├── Cargo.toml
 ├── Cargo.lock
