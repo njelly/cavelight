@@ -4,25 +4,24 @@ use bevy::prelude::*;
 /// matching the feel of classic Pokémon (Game Boy).
 const DEFAULT_SPEED: f32 = 32.0;
 
-/// Marks an entity as player-controlled so the input system drives its [`GridMover`].
+/// System set for grid movement simulation.
 ///
-/// Any entity that should be controlled by keyboard input needs this alongside [`GridMover`].
-/// AI-controlled entities use [`GridMover`] without this marker and have their direction
-/// set by a separate AI system instead.
-#[derive(Component, Debug)]
-pub struct PlayerControlled;
+/// Use this to order other systems relative to grid movement. For example, input
+/// systems should run `.before(GridMoverSet)` so direction is set before the mover
+/// consumes it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GridMoverSet;
 
 /// Drives smooth, grid-locked movement for an entity.
 ///
 /// Each movement step translates the entity exactly one grid cell using linear interpolation
-/// for smooth visual motion — matching the feel of classic Pokémon (Game Boy). Input arrives
-/// via the `direction` field, which a controller (player input or AI) sets each frame.
-/// The mover consumes the direction when beginning each step, so holding a key produces
-/// continuous tile-by-tile movement.
+/// for smooth visual motion — matching the feel of classic Pokémon (Game Boy). A controller
+/// (player input or AI) sets `direction` each frame. The mover consumes the direction when
+/// beginning each step, so holding a direction produces continuous tile-by-tile movement.
 ///
 /// # Example
 /// ```rust,ignore
-/// commands.spawn((sprite, PlayerControlled, GridMover::new(GRID_SIZE)));
+/// commands.spawn((sprite, GridMover::new(GRID_SIZE)));
 /// ```
 #[derive(Component, Debug)]
 pub struct GridMover {
@@ -55,32 +54,12 @@ impl GridMover {
     }
 }
 
-/// Handles keyboard input and smooth grid movement for all entities.
+/// Simulates smooth grid-locked movement for all [`GridMover`] entities.
 pub struct GridMoverPlugin;
 
 impl Plugin for GridMoverPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (player_input, move_grid_movers).chain());
-    }
-}
-
-/// Reads WASD/arrow key input and sets `direction` on [`PlayerControlled`] [`GridMover`] entities.
-fn player_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut query: Query<&mut GridMover, With<PlayerControlled>>,
-) {
-    for mut mover in &mut query {
-        mover.direction = if keys.pressed(KeyCode::ArrowUp) || keys.pressed(KeyCode::KeyW) {
-            Some(IVec2::Y)
-        } else if keys.pressed(KeyCode::ArrowDown) || keys.pressed(KeyCode::KeyS) {
-            Some(IVec2::NEG_Y)
-        } else if keys.pressed(KeyCode::ArrowLeft) || keys.pressed(KeyCode::KeyA) {
-            Some(IVec2::NEG_X)
-        } else if keys.pressed(KeyCode::ArrowRight) || keys.pressed(KeyCode::KeyD) {
-            Some(IVec2::X)
-        } else {
-            None
-        };
+        app.add_systems(Update, move_grid_movers.in_set(GridMoverSet));
     }
 }
 

@@ -2,6 +2,7 @@
 
 mod camera;
 mod grid_mover;
+mod player_input;
 mod sprite_animation;
 
 use bevy::prelude::*;
@@ -9,7 +10,8 @@ use avian2d::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use camera::CameraPlugin;
-use grid_mover::{GridMover, GridMoverPlugin, PlayerControlled};
+use grid_mover::{GridMover, GridMoverPlugin};
+use player_input::{PlayerControlled, PlayerInput, PlayerInputPlugin};
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 
 // One grid cell = 8x8 pixels
@@ -51,6 +53,7 @@ fn main() {
             (
                 CameraPlugin,
                 GridMoverPlugin,
+                PlayerInputPlugin,
                 SpriteAnimationPlugin,
             ),
         ))
@@ -78,5 +81,6 @@ fn spawn_player(
         SpriteAnimation::with_name("player_idle", true),
         GridMover::new(GRID_SIZE),
         PlayerControlled,
+        PlayerInput::default(),
     ));
 }
