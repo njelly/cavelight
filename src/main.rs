@@ -1,12 +1,14 @@
 #![doc = include_str!("../README.md")]
 
 mod camera;
+mod sprite_animation;
 
 use bevy::prelude::*;
 use avian2d::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use camera::CameraPlugin;
+use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 
 // One grid cell = 8x8 pixels
 pub const GRID_SIZE: f32 = 8.0;
@@ -46,13 +48,14 @@ fn main() {
             // | Tuples can contain up to 16 members but can be nested indefinitely.
             (
                 CameraPlugin,
+                SpriteAnimationPlugin,
             ),
         ))
         .add_systems(Startup, spawn_sprite)
         .run();
 }
 
-/// Spawns the 0th sprite from the atlas as a visual sanity check.
+/// Spawns the player idle sprite as a visual sanity check.
 fn spawn_sprite(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -61,11 +64,14 @@ fn spawn_sprite(
     // 512x512 atlas divided into 8x8 tiles = 64 columns, 64 rows
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let layout_handle = layouts.add(layout);
-    commands.spawn(Sprite::from_atlas_image(
-        asset_server.load("atlas_8x8.png"),
-        TextureAtlas {
-            layout: layout_handle,
-            index: 0,
-        },
+    commands.spawn((
+        Sprite::from_atlas_image(
+            asset_server.load("atlas_8x8.png"),
+            TextureAtlas {
+                layout: layout_handle,
+                index: 0,
+            },
+        ),
+        SpriteAnimation::with_name("player_idle", true),
     ));
 }
