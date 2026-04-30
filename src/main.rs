@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod camera;
+mod grid_mover;
 mod sprite_animation;
 
 use bevy::prelude::*;
@@ -8,6 +9,7 @@ use avian2d::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use camera::CameraPlugin;
+use grid_mover::{GridMover, GridMoverPlugin, PlayerControlled};
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 
 // One grid cell = 8x8 pixels
@@ -48,15 +50,16 @@ fn main() {
             // | Tuples can contain up to 16 members but can be nested indefinitely.
             (
                 CameraPlugin,
+                GridMoverPlugin,
                 SpriteAnimationPlugin,
             ),
         ))
-        .add_systems(Startup, spawn_sprite)
+        .add_systems(Startup, spawn_player)
         .run();
 }
 
-/// Spawns the player idle sprite as a visual sanity check.
-fn spawn_sprite(
+/// Spawns the player entity at the world origin.
+fn spawn_player(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
@@ -73,5 +76,7 @@ fn spawn_sprite(
             },
         ),
         SpriteAnimation::with_name("player_idle", true),
+        GridMover::new(GRID_SIZE),
+        PlayerControlled,
     ));
 }
