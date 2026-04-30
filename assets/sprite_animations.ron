@@ -1,0 +1,12 @@
+// Sprite animation library for Cavelight.
+// Each entry maps a name to a list of atlas frame indices and a playback speed.
+// Frame indices refer to tiles in atlas_8x8.png (512x512, 64x64 grid of 8x8 tiles).
+// To add a new animation, add a new entry here — no recompile needed.
+{
+    // Player
+    "player_idle": (frames: [0, 1], fps: 2),
+
+    // Chest
+    "chest_closed": (frames: [3], fps: 1.0),
+    "chest_open":   (frames: [4], fps: 1.0),
+}

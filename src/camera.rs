@@ -9,7 +9,16 @@ impl Plugin for CameraPlugin {
     }
 }
 
+/// Pixels per world unit. Lower values zoom in; higher values zoom out.
+const CAMERA_SCALE: f32 = 0.5;
+
 /// Spawns the primary 2D camera at the world origin.
 fn spawn_camera(mut commands: Commands) {
-    commands.spawn(Camera2d);
+    commands.spawn((
+        Camera2d,
+        Projection::Orthographic(OrthographicProjection {
+            scale: CAMERA_SCALE,
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
 }

@@ -13,15 +13,18 @@ File descriptions should be succinct and useful.
 
 ```
 cavelight/
-├── assets/                     # Resources loaded at runtime (textures, audio, fonts, etc.)
-│   ├── atlas_8x8.png           # 512x512 sprite atlas of 8x8 sprites for characters and dynamic objects.
-│   └── fonts/                  # RobotoMono font family (all weights/styles)
+├── assets/                         # Resources loaded at runtime (textures, audio, fonts, etc.)
+│   ├── atlas_8x8.png               # 512x512 sprite atlas of 8x8 sprites for characters and dynamic objects.
+│   ├── sprite_animations.ron       # Animation library: maps animation names to frame index lists and fps.
+│   └── fonts/                      # RobotoMono font family (all weights/styles)
 ├── src/
-│   └── main.rs                 # Entry point
+│   ├── main.rs                     # Entry point; app setup and plugin registration.
+│   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera.
+│   └── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 ├── Cargo.toml
 ├── Cargo.lock
 ├── CLAUDE.md
-└── README.md                   # Game overview, including game mechanics, theme, vibe, and lore info.
+└── README.md                       # Game overview, including game mechanics, theme, vibe, and lore info.
 ```
 
 ## Art style
@@ -47,6 +50,8 @@ For example, `GridMoverPlugin`, `GridMover: Component`, `fn update_grid_mover()`
 Agents should always attempt to reuse logic when possible and write components and systems that are reusable. 
 For example, `GridMover` can be used by any entity that moves along the 2d grid, which is most characters, including the player.
 Do not duplicate or repeat the same logic in different locations in the codebase.
+
+Agents should always fix any warnings or errors or broken tests when they are encountered, including those that are pre-existing.
 
 ## Documentation
 
