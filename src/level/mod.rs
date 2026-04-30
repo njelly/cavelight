@@ -26,6 +26,13 @@ const TILE_SIZE: f32 = 8.0;
 #[derive(Resource)]
 pub struct PlayerSpawnPoint(pub Vec2);
 
+/// World-space position where the campfire should spawn for the current level.
+///
+/// Always a floor tile at the far end of the cave from the player start,
+/// making it a natural exploration goal. Inserted in [`PreStartup`].
+#[derive(Resource)]
+pub struct CampfireSpawnPoint(pub Vec2);
+
 /// Generates and spawns the level tilemap.
 pub struct LevelPlugin;
 
@@ -110,6 +117,10 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let (sx, sy) = map.player_start;
     let spawn_pos = tile_to_world(sx, sy, map.width, map.height);
     commands.insert_resource(PlayerSpawnPoint(spawn_pos));
+
+    let (cx, cy) = map.campfire_spawn;
+    let campfire_pos = tile_to_world(cx, cy, map.width, map.height);
+    commands.insert_resource(CampfireSpawnPoint(campfire_pos));
 }
 
 /// Converts a grid-space tile coordinate to a world-space position (tile center).

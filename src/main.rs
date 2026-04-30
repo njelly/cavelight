@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod camera;
+mod campfire;
 mod grid_mover;
 mod level;
 mod player_input;
@@ -12,6 +13,7 @@ use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_light_2d::prelude::*;
 use camera::CameraPlugin;
+use campfire::CampfirePlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
 use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{PlayerControlled, PlayerInput, PlayerInputPlugin};
@@ -65,6 +67,7 @@ fn main() {
             (
                 LevelPlugin,
                 CameraPlugin,
+                CampfirePlugin,
                 GridMoverPlugin,
                 PlayerInputPlugin,
                 SpriteAnimationPlugin,

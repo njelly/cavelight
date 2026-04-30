@@ -18,14 +18,15 @@ cavelight/
 │   ├── sprite_animations.ron       # Animation library: maps animation names to frame index lists and fps.
 │   └── fonts/                      # RobotoMono font family (all weights/styles)
 ├── src/
-│   ├── main.rs                     # Entry point; app setup and plugin registration.
-│   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera.
+│   ├── main.rs                     # Entry point; app setup and plugin registration. Spawns player with PlayerLantern child light.
+│   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera with Light2d ambient lighting.
+│   ├── campfire.rs                 # CampfirePlugin — campfire sprite+animation at CampfireSpawnPoint; CampfireFlicker drives flickering PointLight2d child.
 │   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, sprite flipping. PlayerControlled + PlayerInput components; bridges to GridMover.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 │   └── level/                      # LevelPlugin — procedural cave generation and tile spawning.
-│       ├── mod.rs                  # LevelPlugin; spawns tile entities in PreStartup; exports PlayerSpawnPoint resource.
-│       ├── generator.rs            # Cellular automata cave generation; flood-fill to guarantee connectivity.
+│       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint and CampfireSpawnPoint.
+│       ├── generator.rs            # Cellular automata cave generation; flood-fill connectivity; player_start (center) and campfire_spawn (farthest floor tile).
 │       └── tile.rs                 # TileType enum (Wall/Floor) with per-type render colors. Tile marker component.
 ├── Cargo.toml
 ├── Cargo.lock
