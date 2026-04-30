@@ -22,7 +22,11 @@ cavelight/
 │   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera.
 │   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, sprite flipping. PlayerControlled + PlayerInput components; bridges to GridMover.
-│   └── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
+│   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
+│   └── level/                      # LevelPlugin — procedural cave generation and tile spawning.
+│       ├── mod.rs                  # LevelPlugin; spawns tile entities in PreStartup; exports PlayerSpawnPoint resource.
+│       ├── generator.rs            # Cellular automata cave generation; flood-fill to guarantee connectivity.
+│       └── tile.rs                 # TileType enum (Wall/Floor) with per-type render colors. Tile marker component.
 ├── Cargo.toml
 ├── Cargo.lock
 ├── CLAUDE.md
