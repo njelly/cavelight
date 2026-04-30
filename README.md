@@ -16,7 +16,7 @@ Cavelight is also an RPG: you can fight enemies, craft items, and level up to in
 
 Along your travels you may run into interesting and skilled allies who will battle along side you or give you access to new mechanics and abilities. 
 Cavelight is also a colony sim: your allies can go about their routines in the cave system when they aren't fighting enemies by your side. 
-They may explore on their own for rare ores to craft into weapons, farm plants and herbs that grow in the *Cavelight* that can be turned into food or medicine, or fulfill other roles that will establish your syndicate as a real community.
+They may explore on their own for rare ores to craft into weapons, farm plants and herbs that grow in the *cavelight* that can be turned into food or medicine, or fulfill other roles that will establish your syndicate as a real community.
 
 The *cavelight* is a mysterious source of light and energy that makes life inside the procedurally generated cave system possible.
 In certain areas, the cavelight is bright enough for plants to grow, and this is a key early discovery for the player as they learn to plant crops like wheat, potatoes, tomatoes, etc.
