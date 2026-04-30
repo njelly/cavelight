@@ -2,6 +2,7 @@
 
 mod camera;
 mod grid_mover;
+mod level;
 mod player_input;
 mod sprite_animation;
 
@@ -9,13 +10,23 @@ use bevy::prelude::*;
 use avian2d::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_light_2d::prelude::*;
 use camera::CameraPlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
+use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{PlayerControlled, PlayerInput, PlayerInputPlugin};
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 
 // One grid cell = 8x8 pixels
 pub const GRID_SIZE: f32 = 8.0;
+
+/// Marks the lantern light carried by the player.
+///
+/// Spawned as a child of the player entity so it inherits the player's transform.
+/// Query this component to adjust lantern brightness, color, or radius at runtime
+/// (e.g. when the player picks up oil, enters a dark zone, etc.).
+#[derive(Component)]
+pub struct PlayerLantern;
 
 fn main() {
     App::new()
@@ -41,7 +52,8 @@ fn main() {
                 PhysicsPlugins::default().with_length_unit(GRID_SIZE),
                 PhysicsDebugPlugin::default(),
                 EguiPlugin::default(),
-                WorldInspectorPlugin::new()
+                WorldInspectorPlugin::new(),
+                Light2dPlugin,
             ),
 
             // Internal plugins
@@ -51,6 +63,7 @@ fn main() {
             // | If you need more, group them into tuples to work around the limit.
             // | Tuples can contain up to 16 members but can be nested indefinitely.
             (
+                LevelPlugin,
                 CameraPlugin,
                 GridMoverPlugin,
                 PlayerInputPlugin,
@@ -61,26 +74,47 @@ fn main() {
         .run();
 }
 
-/// Spawns the player entity at the world origin.
+/// Spawns the player entity at the position determined by the level generator.
+///
+/// The player carries a [`PlayerLantern`] as a child entity so the light follows
+/// movement automatically via transform propagation.
 fn spawn_player(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+    spawn_point: Res<PlayerSpawnPoint>,
 ) {
     // 512x512 atlas divided into 8x8 tiles = 64 columns, 64 rows
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let layout_handle = layouts.add(layout);
-    commands.spawn((
-        Sprite::from_atlas_image(
-            asset_server.load("atlas_8x8.png"),
-            TextureAtlas {
-                layout: layout_handle,
-                index: 0,
-            },
-        ),
-        SpriteAnimation::with_name("player_idle", true),
-        GridMover::new(GRID_SIZE),
-        PlayerControlled,
-        PlayerInput::default(),
-    ));
+    commands
+        .spawn((
+            Sprite::from_atlas_image(
+                asset_server.load("atlas_8x8.png"),
+                TextureAtlas {
+                    layout: layout_handle,
+                    index: 0,
+                },
+            ),
+            Transform::from_xyz(spawn_point.0.x, spawn_point.0.y, 0.0),
+            SpriteAnimation::with_name("player_idle", true),
+            GridMover::new(GRID_SIZE),
+            PlayerControlled,
+            PlayerInput::default(),
+        ))
+        .with_children(|parent| {
+            // Lantern light carried by the player as a child entity so it follows movement.
+            // TODO: Tune radius and intensity down to ~30 / 1.5 for normal gameplay.
+            parent.spawn((
+                PlayerLantern,
+                Transform::default(),
+                PointLight2d {
+                    color: Color::srgb(1.0, 0.85, 0.5),
+                    intensity: 1.5,
+                    radius: 30.0,
+                    falloff: 2.0,
+                    cast_shadows: true,
+                },
+            ));
+        });
 }
