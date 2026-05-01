@@ -2,7 +2,9 @@
 
 mod camera;
 mod campfire;
+mod chest;
 mod grid_mover;
+mod interaction;
 mod interaction_reticle;
 mod level;
 mod player_input;
@@ -15,7 +17,9 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_light_2d::prelude::*;
 use camera::CameraPlugin;
 use campfire::CampfirePlugin;
+use chest::ChestPlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
+use interaction::InteractionPlugin;
 use interaction_reticle::InteractionReticlePlugin;
 use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
@@ -70,7 +74,9 @@ fn main() {
                 LevelPlugin,
                 CameraPlugin,
                 CampfirePlugin,
+                ChestPlugin,
                 GridMoverPlugin,
+                InteractionPlugin,
                 PlayerInputPlugin,
                 SpriteAnimationPlugin,
                 InteractionReticlePlugin,

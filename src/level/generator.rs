@@ -16,6 +16,8 @@ pub struct MapData {
     pub player_start: (usize, usize),
     /// Grid-space coordinate for the campfire spawn — the floor tile farthest from `player_start`.
     pub campfire_spawn: (usize, usize),
+    /// Grid-space coordinate for the chest spawn — a random floor tile distinct from the other spawns.
+    pub chest_spawn: (usize, usize),
 }
 
 impl MapData {
@@ -46,8 +48,9 @@ pub fn generate_cave(width: usize, height: usize) -> MapData {
     }
 
     let (player_start, campfire_spawn) = isolate_largest_region(&mut tiles, width, height);
+    let chest_spawn = pick_chest_spawn(&tiles, width, player_start, campfire_spawn, &mut rng);
 
-    MapData { width, height, tiles, player_start, campfire_spawn }
+    MapData { width, height, tiles, player_start, campfire_spawn, chest_spawn }
 }
 
 /// Fills the map randomly with ~45% walls. Border tiles are always walls.
@@ -161,6 +164,36 @@ fn isolate_largest_region(
     let campfire_spawn = (campfire_idx % width, campfire_idx / width);
 
     (player_start, campfire_spawn)
+}
+
+/// Picks a random floor tile for the chest that is distinct from the other spawn points.
+///
+/// Falls back to `player_start` only in the degenerate case where no other floor tile exists.
+fn pick_chest_spawn(
+    tiles: &[TileType],
+    width: usize,
+    player_start: (usize, usize),
+    campfire_spawn: (usize, usize),
+    rng: &mut impl Rng,
+) -> (usize, usize) {
+    let candidates: Vec<(usize, usize)> = tiles
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, tile)| {
+            let pos = (idx % width, idx / width);
+            if matches!(tile, TileType::Floor) && pos != player_start && pos != campfire_spawn {
+                Some(pos)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        return player_start;
+    }
+
+    candidates[rng.gen_range(0..candidates.len())]
 }
 
 /// BFS flood fill from `start`, returning all reachable floor tile indices.
@@ -280,5 +313,50 @@ mod tests {
         tiles[4] = TileType::Floor; // center
         let result = smooth_pass(&tiles, 3, 3);
         assert!(matches!(result[4], TileType::Wall));
+    }
+
+    #[test]
+    fn chest_spawn_is_floor_tile() {
+        let map = generate_cave(64, 64);
+        let (cx, cy) = map.chest_spawn;
+        assert!(matches!(map.get(cx, cy), TileType::Floor), "chest spawn must be a floor tile");
+    }
+
+    #[test]
+    fn chest_spawn_distinct_from_other_spawns() {
+        let map = generate_cave(64, 64);
+        assert_ne!(map.chest_spawn, map.player_start, "chest spawn must differ from player start");
+        assert_ne!(map.chest_spawn, map.campfire_spawn, "chest spawn must differ from campfire spawn");
+    }
+
+    #[test]
+    fn pick_chest_spawn_avoids_reserved_positions() {
+        // 1x5 strip: positions 0..4 are floor, position 4 is wall
+        let width = 5;
+        let mut tiles = vec![TileType::Floor; width];
+        tiles[4] = TileType::Wall;
+        let player_start = (0, 0);
+        let campfire_spawn = (3, 0);
+
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..20 {
+            let pos = pick_chest_spawn(&tiles, width, player_start, campfire_spawn, &mut rng);
+            assert!(matches!(tiles[pos.1 * width + pos.0], TileType::Floor), "must be floor");
+            assert_ne!(pos, player_start, "must not be player start");
+            assert_ne!(pos, campfire_spawn, "must not be campfire spawn");
+        }
+    }
+
+    #[test]
+    fn pick_chest_spawn_falls_back_to_player_start_when_no_candidates() {
+        // Only two floor tiles, both reserved.
+        let width = 2;
+        let tiles = vec![TileType::Floor, TileType::Floor];
+        let player_start = (0, 0);
+        let campfire_spawn = (1, 0);
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let pos = pick_chest_spawn(&tiles, width, player_start, campfire_spawn, &mut rng);
+        assert_eq!(pos, player_start, "should fall back to player_start when no free floor tiles remain");
     }
 }

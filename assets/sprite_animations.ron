@@ -6,9 +6,29 @@
     // Player
     "player_idle": (frames: [0, 1], fps: 2),
 
+    // NPC characters
+    "npc_female": (frames: [64, 65], fps: 2),
+    "npc_male": (frames: [128, 129], fps: 2),
+
+    // Friendly
+    "cat": (frames: [134, 135], fps: 2),
+
+    // Enemies
+    "troll": (frames: [192, 193], fps: 0.8),
+    "bat": (frames: [256, 257], fps: 3),
+    "skeleton": (frames: [320, 321], fps: 2),
+    "rat": (frames: [384, 385], fps: 2.5),
+
+    // Plants
+    "flower": (frames: [448, 449], fps: 1.135),
+    "flower_patch": (frames: [512, 513], fps: 1.135),
+
     // Chest
     "chest_closed": (frames: [3], fps: 1.0),
     "chest_open":   (frames: [4], fps: 1.0),
 
+    // Campfire
     "campfire": (frames: [75, 76], fps: 8),
+    "campfire_smoldering": (frames: [139, 140], fps: 0.4),
+    "campfire_extinguished": (frames: [141], fps: 1.0),
 }
