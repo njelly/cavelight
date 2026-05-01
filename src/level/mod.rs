@@ -109,9 +109,11 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     );
     let image_handle = images.add(image);
 
+    // Offset the sprite by half a tile so tile centers land on multiples of TILE_SIZE,
+    // keeping visual tiles aligned with the GridMover snap grid.
     commands.spawn((
         Sprite::from_image(image_handle),
-        Transform::from_xyz(0.0, 0.0, -1.0),
+        Transform::from_xyz(-TILE_SIZE / 2.0, -TILE_SIZE / 2.0, -1.0),
     ));
 
     let (sx, sy) = map.player_start;
@@ -125,11 +127,14 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 
 /// Converts a grid-space tile coordinate to a world-space position (tile center).
 ///
-/// The map is centered at the world origin.
+/// Tile centers are always at integer multiples of [`TILE_SIZE`], which keeps them
+/// aligned with the [`GridMoverPlugin`]'s snap grid. For even-width maps the origin
+/// falls on a tile center at the middle-right of the map; the tilemap sprite is
+/// shifted to compensate so the visual result is still centered on screen.
 fn tile_to_world(x: usize, y: usize, width: usize, height: usize) -> Vec2 {
     Vec2::new(
-        (x as f32 - (width as f32 - 1.0) / 2.0) * TILE_SIZE,
-        (y as f32 - (height as f32 - 1.0) / 2.0) * TILE_SIZE,
+        (x as f32 - width as f32 / 2.0) * TILE_SIZE,
+        (y as f32 - height as f32 / 2.0) * TILE_SIZE,
     )
 }
 
@@ -138,11 +143,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tile_to_world_centers_map_at_origin() {
-        // For a 4x4 map, tile (1,1) and (2,2) should be symmetric around origin
-        let a = tile_to_world(1, 1, 4, 4);
-        let b = tile_to_world(2, 2, 4, 4);
-        assert_eq!(a, -b);
+    fn tile_to_world_positions_on_grid() {
+        // All tile centers must be exact multiples of TILE_SIZE so they align with
+        // the GridMover snap grid.
+        for x in 0..4usize {
+            for y in 0..4usize {
+                let pos = tile_to_world(x, y, 4, 4);
+                assert_eq!(pos.x % TILE_SIZE, 0.0, "tile ({x},{y}) x not on grid");
+                assert_eq!(pos.y % TILE_SIZE, 0.0, "tile ({x},{y}) y not on grid");
+            }
+        }
     }
 
     #[test]

@@ -125,4 +125,15 @@ mod tests {
     fn snap_on_exact_grid_is_unchanged() {
         assert_eq!(snap_to_grid(Vec2::new(16.0, 24.0), 8.0), Vec2::new(16.0, 24.0));
     }
+
+    #[test]
+    fn snap_on_tile_center_is_stable() {
+        // Tile centers must be fixed points of snap_to_grid so a GridMover starting
+        // on a tile (e.g. at the player spawn) steps to the *next* tile, not to a
+        // shifted grid. Any multiple of grid_size must round to itself.
+        for k in [-4i32, -1, 0, 1, 4] {
+            let pos = Vec2::splat(k as f32 * 8.0);
+            assert_eq!(snap_to_grid(pos, 8.0), pos, "snap drifted for k={k}");
+        }
+    }
 }
