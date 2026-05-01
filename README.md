@@ -27,6 +27,10 @@ WASD: Move
 
 Space: Interact
 
+### Debug controls
+
+F1: Toggle collision shape overlay
+
 ## Tech stack
 
 Built with Bevy + Rust.

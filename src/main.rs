@@ -3,6 +3,7 @@
 mod camera;
 mod campfire;
 mod grid_mover;
+mod interaction_reticle;
 mod level;
 mod player_input;
 mod sprite_animation;
@@ -15,8 +16,9 @@ use bevy_light_2d::prelude::*;
 use camera::CameraPlugin;
 use campfire::CampfirePlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
+use interaction_reticle::InteractionReticlePlugin;
 use level::{LevelPlugin, PlayerSpawnPoint};
-use player_input::{PlayerControlled, PlayerInput, PlayerInputPlugin};
+use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 
 // One grid cell = 8x8 pixels
@@ -71,10 +73,23 @@ fn main() {
                 GridMoverPlugin,
                 PlayerInputPlugin,
                 SpriteAnimationPlugin,
+                InteractionReticlePlugin,
             ),
         ))
+        .insert_gizmo_config(PhysicsGizmos::default(), GizmoConfig { enabled: false, ..default() })
         .add_systems(Startup, spawn_player)
+        .add_systems(Update, toggle_physics_debug)
         .run();
+}
+
+/// Toggles avian2d collision shape debug rendering on/off with F1.
+fn toggle_physics_debug(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut store: ResMut<GizmoConfigStore>,
+) {
+    if keys.just_pressed(KeyCode::F1) {
+        store.config_mut::<PhysicsGizmos>().0.enabled ^= true;
+    }
 }
 
 /// Spawns the player entity at the position determined by the level generator.
@@ -104,6 +119,7 @@ fn spawn_player(
             GridMover::new(GRID_SIZE),
             PlayerControlled,
             PlayerInput::default(),
+            Facing::default(),
         ))
         .with_children(|parent| {
             // Lantern light carried by the player as a child entity so it follows movement.
