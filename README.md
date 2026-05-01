@@ -29,4 +29,25 @@ Space: Interact
 
 ## Tech stack
 
-Built with Bevy+Rust.
+Built with Bevy + Rust.
+
+## Physics
+
+Cavelight uses [avian2d](https://github.com/Jondolf/avian) for physics and spatial queries.
+
+### Movement
+
+Player and NPC movement is grid-locked in the style of classic Pokémon (Game Boy) — entities move exactly one tile per step with smooth linear interpolation between cells, driven by the `GridMover` component. Movement is not physics-simulated; `GridMover` sets the transform directly each frame.
+
+### Collision
+
+Wall tiles are registered as `RigidBody::Static` + `Collider::rectangle` entities in avian2d's physics world. Before `GridMover` commits to a step, it uses `SpatialQuery::point_intersections` to test the target tile center against all colliders. If any collider contains that point, the move is blocked.
+
+This design deliberately uses one collider per wall tile rather than a merged compound shape, because it makes Minecraft-style block placement trivial: adding a wall spawns a new entity and removing one removes it — no compound shape rebuild required.
+
+### Future directions
+
+- **Block placement** — the per-tile collider design is already shaped to support it.
+- **Projectile physics** — avian2d raycasts or shape casts for arrows, thrown items, etc.
+- **Push-back / forces** — entities with `RigidBody::Dynamic` can receive impulses from attacks.
+- **Area-of-effect queries** — `shape_intersections` for splash damage, detection radii, etc.
