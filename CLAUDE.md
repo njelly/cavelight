@@ -25,6 +25,7 @@ cavelight/
 │   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
 │   ├── interaction.rs              # InteractionPlugin — Interactable marker, InteractEvent trigger, InteractionSet system set. Space press fires InteractEvent via Commands::trigger.
 │   ├── interaction_reticle.rs      # InteractionReticlePlugin — tile-highlight square that shows the player's facing tile. Space fades it in; it fades out 1s after last press. Orbits to new facing on direction change.
+│   ├── inventory.rs                # InventoryPlugin — 4x4 inventory grid + 4-slot hotbar. InventoryOpen resource toggled with I; hotbar always visible at bottom (GlobalZIndex 10); overlay dims background (GlobalZIndex 5).
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, Facing component, sprite flipping. PlayerControlled + PlayerInput + Facing; bridges to GridMover.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 │   └── level/                      # LevelPlugin — procedural cave generation and tile spawning.

@@ -3,9 +3,11 @@
 mod camera;
 mod campfire;
 mod chest;
+mod fps_counter;
 mod grid_mover;
 mod interaction;
 mod interaction_reticle;
+mod inventory;
 mod level;
 mod player_input;
 mod sprite_animation;
@@ -18,9 +20,11 @@ use bevy_light_2d::prelude::*;
 use camera::CameraPlugin;
 use campfire::CampfirePlugin;
 use chest::ChestPlugin;
+use fps_counter::FpsCounterPlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
 use interaction::InteractionPlugin;
 use interaction_reticle::InteractionReticlePlugin;
+use inventory::InventoryPlugin;
 use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
@@ -82,8 +86,10 @@ fn main() {
                 CameraPlugin,
                 CampfirePlugin,
                 ChestPlugin,
+                FpsCounterPlugin,
                 GridMoverPlugin,
                 InteractionPlugin,
+                InventoryPlugin,
                 PlayerInputPlugin,
                 SpriteAnimationPlugin,
                 InteractionReticlePlugin,
