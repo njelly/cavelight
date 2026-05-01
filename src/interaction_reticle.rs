@@ -67,8 +67,8 @@ fn spawn_reticle(
         commands.entity(player).with_children(|parent| {
             parent.spawn((
                 InteractionReticle::default(),
-                // Warm highlight tint, initially fully transparent.
-                Sprite::from_color(Color::srgba(1.0, 0.95, 0.6, 0.0), Vec2::splat(GRID_SIZE)),
+                // White so it picks up tint from nearby lights (e.g. the player lantern).
+                Sprite::from_color(Color::srgba(1.0, 1.0, 1.0, 0.0), Vec2::splat(GRID_SIZE)),
                 // Start at the East offset; z=-0.5 places the reticle below the player sprite.
                 Transform::from_xyz(GRID_SIZE, 0.0, -0.5),
             ));

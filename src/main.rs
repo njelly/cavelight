@@ -128,8 +128,8 @@ fn spawn_player(
                 PlayerLantern,
                 Transform::default(),
                 PointLight2d {
-                    color: Color::srgb(1.0, 0.85, 0.5),
-                    intensity: 1.5,
+                    color: Color::srgb(0.5, 0.7, 1.0),
+                    intensity: 0.6,
                     radius: 30.0,
                     falloff: 2.0,
                     cast_shadows: true,
