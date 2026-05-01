@@ -28,12 +28,19 @@ use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 // One grid cell = 8x8 pixels
 pub const GRID_SIZE: f32 = 8.0;
 
+/// Tracks whether the egui world inspector panel is visible.
+///
+/// Defaults to `false` (hidden). Toggle with F2.
+#[derive(Resource, Default)]
+struct WorldInspectorOpen(bool);
+
 /// Marks the lantern light carried by the player.
 ///
 /// Spawned as a child of the player entity so it inherits the player's transform.
 /// Query this component to adjust lantern brightness, color, or radius at runtime
 /// (e.g. when the player picks up oil, enters a dark zone, etc.).
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct PlayerLantern;
 
 fn main() {
@@ -60,7 +67,7 @@ fn main() {
                 PhysicsPlugins::default().with_length_unit(GRID_SIZE),
                 PhysicsDebugPlugin::default(),
                 EguiPlugin::default(),
-                WorldInspectorPlugin::new(),
+                WorldInspectorPlugin::new().run_if(|open: Res<WorldInspectorOpen>| open.0),
                 Light2dPlugin,
             ),
 
@@ -82,10 +89,22 @@ fn main() {
                 InteractionReticlePlugin,
             ),
         ))
+        .register_type::<PlayerLantern>()
         .insert_gizmo_config(PhysicsGizmos::default(), GizmoConfig { enabled: false, ..default() })
+        .init_resource::<WorldInspectorOpen>()
         .add_systems(Startup, spawn_player)
-        .add_systems(Update, toggle_physics_debug)
+        .add_systems(Update, (toggle_physics_debug, toggle_world_inspector))
         .run();
+}
+
+/// Toggles the egui world inspector panel on/off with F2.
+fn toggle_world_inspector(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut open: ResMut<WorldInspectorOpen>,
+) {
+    if keys.just_pressed(KeyCode::F2) {
+        open.0 ^= true;
+    }
 }
 
 /// Toggles avian2d collision shape debug rendering on/off with F1.

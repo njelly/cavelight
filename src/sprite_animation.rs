@@ -33,7 +33,8 @@ pub struct AnimationLibraryHandle(pub Handle<SpriteAnimationLibrary>);
 /// ```rust,ignore
 /// commands.spawn((sprite, SpriteAnimation::with_name("player_idle", true)));
 /// ```
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct SpriteAnimation {
     /// Key into [`SpriteAnimationLibrary`].
     pub name: String,
@@ -70,7 +71,8 @@ pub struct SpriteAnimationPlugin;
 
 impl Plugin for SpriteAnimationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(RonAssetPlugin::<SpriteAnimationLibrary>::new(&["ron"]))
+        app.register_type::<SpriteAnimation>()
+            .add_plugins(RonAssetPlugin::<SpriteAnimationLibrary>::new(&["ron"]))
             .add_systems(Startup, load_animation_library)
             .add_systems(Update, animate_sprites);
     }

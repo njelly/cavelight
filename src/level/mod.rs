@@ -45,7 +45,8 @@ pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, spawn_level);
+        app.register_type::<Tile>()
+            .add_systems(PreStartup, spawn_level);
     }
 }
 
