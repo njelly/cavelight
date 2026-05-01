@@ -3,6 +3,7 @@ mod tile;
 
 pub use tile::Tile;
 
+use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -80,11 +81,14 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
                 }
             }
 
-            // Walls get an invisible occluder entity so point lights cast shadows through them.
+            // Walls get a static rigid body so the player cannot walk through them,
+            // plus a shadow caster so point lights cast shadows.
             if tile_type == TileType::Wall {
                 let pos = tile_to_world(x, y, map.width, map.height);
                 commands.spawn((
                     Transform::from_xyz(pos.x, pos.y, 0.0),
+                    RigidBody::Static,
+                    Collider::rectangle(TILE_SIZE, TILE_SIZE),
                     LightOccluder2d {
                         shape: LightOccluder2dShape::Rectangle {
                             half_size: Vec2::splat(TILE_SIZE / 2.0),

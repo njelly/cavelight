@@ -1,3 +1,4 @@
+use avian2d::prelude::*;
 use bevy::prelude::*;
 
 /// Movement speed in pixels per second. At 8px per cell this gives ~4 steps/sec,
@@ -67,7 +68,13 @@ impl Plugin for GridMoverPlugin {
 ///
 /// When a movement step completes and a direction is still set (key held), the next step begins
 /// in the same frame — producing seamless continuous movement with no idle frame between cells.
-fn move_grid_movers(time: Res<Time>, mut query: Query<(&mut GridMover, &mut Transform)>) {
+/// Before committing to a new step, the target tile center is tested against wall colliders using
+/// [`SpatialQuery::point_intersections`]; any hit blocks the move.
+fn move_grid_movers(
+    time: Res<Time>,
+    spatial_query: SpatialQuery,
+    mut query: Query<(&mut GridMover, &mut Transform)>,
+) {
     for (mut mover, mut transform) in &mut query {
         if mover.moving {
             mover.progress += (mover.speed / mover.grid_size) * time.delta_secs();
@@ -87,8 +94,18 @@ fn move_grid_movers(time: Res<Time>, mut query: Query<(&mut GridMover, &mut Tran
 
         if let Some(dir) = mover.direction.take() {
             let current = snap_to_grid(transform.translation.truncate(), mover.grid_size);
+            let potential_target = current + dir.as_vec2() * mover.grid_size;
+
+            // Reject the move if the target tile center is inside a wall collider.
+            let blocked = !spatial_query
+                .point_intersections(potential_target, &SpatialQueryFilter::default())
+                .is_empty();
+            if blocked {
+                continue;
+            }
+
             mover.start = current;
-            mover.target = current + dir.as_vec2() * mover.grid_size;
+            mover.target = potential_target;
             mover.progress = 0.0;
             mover.moving = true;
             transform.translation = mover.start.extend(transform.translation.z);
