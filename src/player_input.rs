@@ -34,6 +34,16 @@ impl Facing {
         }
     }
 
+    /// Returns the world-space unit offset vector for this direction.
+    pub fn offset(self) -> Vec2 {
+        match self {
+            Facing::East => Vec2::X,
+            Facing::West => Vec2::NEG_X,
+            Facing::North => Vec2::Y,
+            Facing::South => Vec2::NEG_Y,
+        }
+    }
+
     /// Returns the angle in radians for this direction (East = 0, counter-clockwise positive).
     ///
     /// Matches [`Vec2::from_angle`]: `cos` maps to x and `sin` maps to y.

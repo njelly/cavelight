@@ -34,6 +34,12 @@ pub struct PlayerSpawnPoint(pub Vec2);
 #[derive(Resource)]
 pub struct CampfireSpawnPoint(pub Vec2);
 
+/// World-space position where the chest should spawn for the current level.
+///
+/// A random floor tile distinct from the player and campfire spawns. Inserted in [`PreStartup`].
+#[derive(Resource)]
+pub struct ChestSpawnPoint(pub Vec2);
+
 /// Generates and spawns the level tilemap.
 pub struct LevelPlugin;
 
@@ -127,6 +133,10 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let (cx, cy) = map.campfire_spawn;
     let campfire_pos = tile_to_world(cx, cy, map.width, map.height);
     commands.insert_resource(CampfireSpawnPoint(campfire_pos));
+
+    let (hx, hy) = map.chest_spawn;
+    let chest_pos = tile_to_world(hx, hy, map.width, map.height);
+    commands.insert_resource(ChestSpawnPoint(chest_pos));
 }
 
 /// Converts a grid-space tile coordinate to a world-space position (tile center).

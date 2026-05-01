@@ -21,12 +21,14 @@ cavelight/
 │   ├── main.rs                     # Entry point; app setup and plugin registration. Spawns player with PlayerLantern child light.
 │   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera with Light2d ambient lighting.
 │   ├── campfire.rs                 # CampfirePlugin — campfire sprite+animation at CampfireSpawnPoint; CampfireFlicker drives flickering PointLight2d child.
+│   ├── chest.rs                    # ChestPlugin — chest entity at ChestSpawnPoint; Chest component tracks open/closed state; observer toggles sprite frame on InteractEvent.
 │   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
+│   ├── interaction.rs              # InteractionPlugin — Interactable marker, InteractEvent trigger, InteractionSet system set. Space press fires InteractEvent via Commands::trigger.
 │   ├── interaction_reticle.rs      # InteractionReticlePlugin — tile-highlight square that shows the player's facing tile. Space fades it in; it fades out 1s after last press. Orbits to new facing on direction change.
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, Facing component, sprite flipping. PlayerControlled + PlayerInput + Facing; bridges to GridMover.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 │   └── level/                      # LevelPlugin — procedural cave generation and tile spawning.
-│       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint and CampfireSpawnPoint.
+│       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint, CampfireSpawnPoint, and ChestSpawnPoint.
 │       ├── generator.rs            # Cellular automata cave generation; flood-fill connectivity; player_start (center) and campfire_spawn (farthest floor tile).
 │       └── tile.rs                 # TileType enum (Wall/Floor) with per-type render colors. Tile marker component.
 ├── Cargo.toml
