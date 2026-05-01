@@ -23,7 +23,8 @@ const MAX_ALPHA: f32 = 0.5;
 /// When the reticle is visible and the player changes direction, it orbits around
 /// the player along the shortest arc to the new facing angle. While invisible it
 /// snaps instantly so it is already in position when it fades back in.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct InteractionReticle {
     /// Current orbit angle in radians. East = 0, counter-clockwise positive.
     current_angle: f32,
@@ -51,7 +52,8 @@ pub struct InteractionReticlePlugin;
 
 impl Plugin for InteractionReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostStartup, spawn_reticle)
+        app.register_type::<InteractionReticle>()
+            .add_systems(PostStartup, spawn_reticle)
             .add_systems(Update, update_reticle.after(GridMoverSet));
     }
 }

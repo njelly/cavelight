@@ -9,7 +9,8 @@ use crate::GRID_SIZE;
 ///
 /// A chest starts closed and can be toggled open by the player interacting with it.
 /// `is_open` drives the displayed sprite frame and will gate future inventory logic.
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct Chest {
     pub is_open: bool,
 }
@@ -19,7 +20,8 @@ pub struct ChestPlugin;
 
 impl Plugin for ChestPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_chest)
+        app.register_type::<Chest>()
+            .add_systems(Startup, spawn_chest)
             .add_observer(on_chest_interact);
     }
 }

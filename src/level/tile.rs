@@ -33,6 +33,7 @@ impl TileType {
 ///
 /// Currently a marker; `tile_type: TileType` will be added back once a system (collision,
 /// pathfinding, etc.) needs to query it.
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct Tile;
 

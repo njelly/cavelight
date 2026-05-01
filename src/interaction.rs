@@ -9,7 +9,8 @@ use crate::GRID_SIZE;
 ///
 /// Any entity with this component and a [`Collider`] will receive an [`InteractEvent`]
 /// when the player faces its tile and presses Space.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Interactable;
 
 /// Triggered when the player presses Space while facing a tile that contains an [`Interactable`] entity.
@@ -36,12 +37,13 @@ pub struct InteractionPlugin;
 
 impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            fire_interact_events
-                .in_set(InteractionSet)
-                .after(GridMoverSet),
-        );
+        app.register_type::<Interactable>()
+            .add_systems(
+                Update,
+                fire_interact_events
+                    .in_set(InteractionSet)
+                    .after(GridMoverSet),
+            );
     }
 }
 

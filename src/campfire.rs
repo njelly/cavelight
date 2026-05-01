@@ -6,7 +6,8 @@ use crate::level::CampfireSpawnPoint;
 use crate::sprite_animation::SpriteAnimation;
 
 /// Marks the campfire entity.
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct Campfire;
 
 /// Drives the flickering intensity animation on the campfire's point light.
@@ -14,7 +15,8 @@ pub struct Campfire;
 /// Attached to the campfire's light child entity. Each frame the current intensity
 /// is lerped toward a randomly-chosen target; the target refreshes on a short
 /// repeating timer to produce a natural, organic flame effect.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct CampfireFlicker {
     /// Baseline intensity around which the flame oscillates.
     pub base_intensity: f32,
@@ -45,7 +47,9 @@ pub struct CampfirePlugin;
 
 impl Plugin for CampfirePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_campfire)
+        app.register_type::<Campfire>()
+            .register_type::<CampfireFlicker>()
+            .add_systems(Startup, spawn_campfire)
             .add_systems(Update, flicker_campfire_light);
     }
 }

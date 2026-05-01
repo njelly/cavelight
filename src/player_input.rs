@@ -7,7 +7,8 @@ use crate::grid_mover::{GridMover, GridMoverSet};
 /// Updated each frame from [`PlayerInput::direction`] whenever the player moves.
 /// Drives sprite flipping (East = normal, West = flipped) and determines which tile
 /// the [`crate::interaction_reticle::InteractionReticle`] highlights.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
+#[reflect(Component, Default)]
 pub enum Facing {
     /// Facing right — the default, non-flipped sprite orientation.
     #[default]
@@ -61,14 +62,16 @@ impl Facing {
 ///
 /// Attach alongside [`PlayerInput`], [`Facing`], and [`GridMover`] on the player entity.
 /// AI-controlled entities use [`GridMover`] without this marker.
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct PlayerControlled;
 
 /// Captures the player's input intent for the current frame.
 ///
 /// Populated each frame by [`read_keyboard_input`] and consumed by downstream systems.
 /// Add this alongside [`PlayerControlled`] on the player entity.
-#[derive(Component, Debug, Default)]
+#[derive(Component, Debug, Default, Reflect)]
+#[reflect(Component, Default)]
 pub struct PlayerInput {
     /// Requested movement direction. Cardinal only; diagonal movement is not supported.
     pub direction: Option<IVec2>,
@@ -79,12 +82,15 @@ pub struct PlayerInputPlugin;
 
 impl Plugin for PlayerInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (read_keyboard_input, update_facing, apply_input_to_grid_mover)
-                .chain()
-                .before(GridMoverSet),
-        );
+        app.register_type::<Facing>()
+            .register_type::<PlayerControlled>()
+            .register_type::<PlayerInput>()
+            .add_systems(
+                Update,
+                (read_keyboard_input, update_facing, apply_input_to_grid_mover)
+                    .chain()
+                    .before(GridMoverSet),
+            );
     }
 }
 

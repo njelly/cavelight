@@ -24,7 +24,8 @@ pub struct GridMoverSet;
 /// ```rust,ignore
 /// commands.spawn((sprite, GridMover::new(GRID_SIZE)));
 /// ```
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct GridMover {
     /// Size of one grid cell in world units.
     pub grid_size: f32,
@@ -60,7 +61,8 @@ pub struct GridMoverPlugin;
 
 impl Plugin for GridMoverPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, move_grid_movers.in_set(GridMoverSet));
+        app.register_type::<GridMover>()
+            .add_systems(Update, move_grid_movers.in_set(GridMoverSet));
     }
 }
 
