@@ -9,15 +9,17 @@ use super::tile::TileType;
 // Public types
 // ---------------------------------------------------------------------------
 
-/// Which axis a door passage blocks.
+/// Which axis a door passage runs along.
 ///
-/// Determines which door sprite variant is shown (e.g. `door_northsouth_closed`).
-/// Additional orientations (e.g. `EastWest`) will be added when levels with
-/// east–west locked-door corridors are introduced.
+/// Detected from the tiles adjacent to the door after generation:
+/// - Walls on the **east and west** sides → corridor runs **north–south** → `NorthSouth`
+/// - Walls on the **north and south** sides → corridor runs **east–west** → `EastWest`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DoorOrientation {
-    /// Corridor runs north–south; the door bar is horizontal (blocks N-S movement).
+    /// Corridor runs north–south; walls flank the door to the east and west.
     NorthSouth,
+    /// Corridor runs east–west; walls flank the door to the north and south.
+    EastWest,
 }
 
 /// An axis-aligned rectangular room in tile coordinates.
@@ -81,7 +83,7 @@ impl MapData {
 // Level 1 entry point
 // ---------------------------------------------------------------------------
 
-/// Generates the first cave level using a fixed room graph.
+/// Generates the first cave level using a fixed room graph and a randomly rotated layout.
 ///
 /// ## Room graph
 /// ```text
@@ -90,62 +92,106 @@ impl MapData {
 ///                  [KeyChest]
 /// ```
 ///
+/// ## Layout randomisation
+/// A canonical base layout (end room south, side rooms east/west) is rotated by a
+/// random multiple of 90° each generation. This gives 4 distinct orientations of the
+/// room graph (end north/south/east/west) while keeping the graph topology fixed.
+/// The side rooms are additionally randomly assigned between weapon and key.
+///
 /// ## Algorithm
-/// 1. Place four rectangular rooms at randomised positions within fixed zones.
-/// 2. Carve L-shaped corridors (3 tiles wide) between connected rooms.
-/// 3. Apply 3 cellular-automata smoothing passes to roughen the cave feel.
-/// 4. Re-carve room interiors (inset by 1) so they stay open after CA.
-/// 5. Enforce a 1-tile bottleneck at the locked door position.
-/// 6. Flood-fill from the start room to wall off any disconnected scraps.
-/// 7. Extract all spawn-point coordinates from within their respective rooms.
+/// 1. Pick a random rotation (0°/90°/180°/270°) and apply it to all room zone centres.
+/// 2. Place four rectangular rooms within their zones (±4-tile jitter each).
+/// 3. Carve L-shaped corridors (3 tiles wide) between connected rooms.
+/// 4. Apply 3 cellular-automata smoothing passes to roughen the cave feel.
+/// 5. Re-carve room interiors (inset by 1) so they stay open after CA.
+/// 6. Re-carve corridor spines so CA cannot fully sever a passage.
+/// 7. Enforce a 1-tile bottleneck at the locked door position:
+///    - N/S corridors: wall the entire row at `door_y`.
+///    - E/W corridors: wall the entire column at `door_x`.
+/// 8. Flood-fill from the start room to wall off any disconnected scraps.
+/// 9. Extract all spawn-point coordinates from within their respective rooms.
 pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
     let mut rng = StdRng::seed_from_u64(seed);
-
     let mut tiles = vec![TileType::Wall; width * height];
 
     // ------------------------------------------------------------------
-    // 1. Place rooms
-    //    Zones are chosen so rooms never overlap and always fit in 64×64.
-    //    Each center is jittered ±jitter tiles for variety.
+    // 1. Choose layout rotation.
+    //    The base layout has end south, side-A east, side-B west.
+    //    Rotation 0 = base, 1 = 90° CCW (end east), 2 = 180° (end north),
+    //    3 = 270° CCW (end west).  Rotation 0/2 → N/S corridor;
+    //    rotation 1/3 → E/W corridor.
     // ------------------------------------------------------------------
-    let start_room = place_room(32, 36, 18, 18, 3, &mut rng, width, height);
-    let weapon_room = place_room(52, 24, 12, 12, 3, &mut rng, width, height);
-    let key_room = place_room(14, 52, 12, 12, 3, &mut rng, width, height);
-    let end_room = place_room(32, 11, 12, 12, 3, &mut rng, width, height);
+    let rotation = rng.gen_range(0u8..4);
+    let corridor_is_ns = rotation % 2 == 0;
+
+    // Base zone offsets from map centre. The end room is 20 tiles south in
+    // the canonical layout; the two side rooms flank start east and west.
+    let map_cx = (width  / 2) as i32;
+    let map_cy = (height / 2) as i32;
+
+    // Converts a base (bx,by) offset to an absolute tile centre, applying
+    // the chosen rotation.
+    let to_abs = |bx: i32, by: i32| -> (usize, usize) {
+        let (rx, ry) = rotate_offset(bx, by, rotation);
+        (((map_cx + rx).max(0)) as usize, ((map_cy + ry).max(0)) as usize)
+    };
+
+    let (scx,  scy)  = to_abs(  0,   0);   // start — map centre
+    let (ecx,  ecy)  = to_abs(  0, -20);   // end — 20 south in base
+    let (s1cx, s1cy) = to_abs( 20,   0);   // side-A — 20 east in base
+    let (s2cx, s2cy) = to_abs(-18,   0);   // side-B — 18 west in base
+
+    // Randomly assign which side room holds the weapon chest vs the key chest.
+    let ((wcx, wcy), (kcx, kcy)) = if rng.gen_bool(0.5) {
+        ((s1cx, s1cy), (s2cx, s2cy))
+    } else {
+        ((s2cx, s2cy), (s1cx, s1cy))
+    };
 
     // ------------------------------------------------------------------
-    // 2. Carve rooms and corridors
+    // 2. Place rooms within their zones (±4-tile jitter).
+    // ------------------------------------------------------------------
+    let start_room  = place_room(scx, scy,  18, 18, 4, &mut rng, width, height);
+    let end_room    = place_room(ecx, ecy,  12, 12, 4, &mut rng, width, height);
+    let weapon_room = place_room(wcx, wcy,  12, 12, 4, &mut rng, width, height);
+    let key_room    = place_room(kcx, kcy,  12, 12, 4, &mut rng, width, height);
+
+    // ------------------------------------------------------------------
+    // 3. Carve rooms and corridors.
     // ------------------------------------------------------------------
     for room in [&start_room, &weapon_room, &key_room, &end_room] {
         carve_rect(&mut tiles, width, room.x, room.y, room.w, room.h);
     }
 
     let (start_cx, start_cy) = start_room.center();
+    let (end_cx,   end_cy)   = end_room.center();
     let (weapon_cx, weapon_cy) = weapon_room.center();
-    let (key_cx, key_cy) = key_room.center();
-    let (end_cx, end_cy) = end_room.center();
+    let (key_cx,    key_cy)    = key_room.center();
 
-    // Weapon and key rooms are side branches off the start room.
+    // Branch rooms connect directly to start; end room connects via locked door.
     carve_corridor(&mut tiles, width, height, (start_cx, start_cy), (weapon_cx, weapon_cy), 3);
-    carve_corridor(&mut tiles, width, height, (start_cx, start_cy), (key_cx, key_cy), 3);
-    // End room is connected through the locked door corridor.
-    carve_corridor(&mut tiles, width, height, (start_cx, start_cy), (end_cx, end_cy), 3);
+    carve_corridor(&mut tiles, width, height, (start_cx, start_cy), (key_cx,    key_cy),    3);
+    carve_corridor(&mut tiles, width, height, (start_cx, start_cy), (end_cx,    end_cy),    3);
 
     // ------------------------------------------------------------------
-    // 3. Locked door: 1-tile bottleneck on the Start→End corridor.
-    //    The corridor's vertical segment runs at x = end_cx.
-    //    The door sits at the midpoint between the two room centers.
+    // 4. Locked door bottleneck position.
+    //    N/S corridors: door sits on the vertical spine at end_cx, midway
+    //    between the two room centres.
+    //    E/W corridors: door sits on the horizontal spine at start_cy, midway
+    //    along the east-west axis.
     // ------------------------------------------------------------------
-    let door_x = end_cx;
-    let door_y = (start_cy + end_cy) / 2;
+    let (door_x, door_y) = if corridor_is_ns {
+        (end_cx, (start_cy + end_cy) / 2)
+    } else {
+        ((start_cx + end_cx) / 2, start_cy)
+    };
 
     // ------------------------------------------------------------------
-    // 4. Cellular automata: 3 passes to rough up the corridors.
+    // 5. Cellular automata: 3 passes to roughen the corridors.
     //    Room interiors are re-carved after each pass so they stay open.
     // ------------------------------------------------------------------
     for _ in 0..3 {
         tiles = smooth_pass(&tiles, width, height);
-        // Re-carve room interiors (inset 1 tile so edges can naturalize).
         for room in [&start_room, &weapon_room, &key_room, &end_room] {
             if room.w > 2 && room.h > 2 {
                 carve_rect(&mut tiles, width, room.x + 1, room.y + 1, room.w - 2, room.h - 2);
@@ -154,28 +200,34 @@ pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
     }
 
     // ------------------------------------------------------------------
-    // 5. Safety: re-carve corridor spines (1 tile wide) so CA cannot
-    //    sever a corridor entirely.
+    // 6. Re-carve corridor spines (1 tile wide) so CA cannot sever a path.
     // ------------------------------------------------------------------
     carve_spine(&mut tiles, width, height, (start_cx, start_cy), (weapon_cx, weapon_cy));
-    carve_spine(&mut tiles, width, height, (start_cx, start_cy), (key_cx, key_cy));
-    carve_spine(&mut tiles, width, height, (start_cx, start_cy), (end_cx, end_cy));
+    carve_spine(&mut tiles, width, height, (start_cx, start_cy), (key_cx,    key_cy));
+    carve_spine(&mut tiles, width, height, (start_cx, start_cy), (end_cx,    end_cy));
 
     // ------------------------------------------------------------------
-    // 6. Enforce solid border and door bottleneck.
+    // 7. Enforce solid border and 1-tile door bottleneck.
+    //    For N/S corridors the entire row at door_y becomes wall.
+    //    For E/W corridors the entire column at door_x becomes wall.
+    //    Cardinal-only movement cannot bypass a complete row/column barrier.
     // ------------------------------------------------------------------
     enforce_border(&mut tiles, width, height);
 
-    // Wall the entire row at door_y, then restore exactly the door tile.
-    // Cardinal-only movement means a complete horizontal wall is an unbreakable barrier —
-    // no matter how much CA widens the corridor, there is no path around the door.
-    for x in 0..width {
-        tiles[door_y * width + x] = TileType::Wall;
+    if corridor_is_ns {
+        for x in 0..width {
+            tiles[door_y * width + x] = TileType::Wall;
+        }
+    } else {
+        for y in 0..height {
+            tiles[y * width + door_x] = TileType::Wall;
+        }
     }
+    // Restore the single door tile so the room graph remains connected.
     tiles[door_y * width + door_x] = TileType::Floor;
 
     // ------------------------------------------------------------------
-    // 7. Flood-fill from the start room center; wall off unreachable scraps.
+    // 8. Flood-fill from the start room center; wall off unreachable scraps.
     // ------------------------------------------------------------------
     let flood_start = start_cy * width + start_cx;
     if matches!(tiles[flood_start], TileType::Floor) {
@@ -190,7 +242,7 @@ pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
     }
 
     // ------------------------------------------------------------------
-    // 8. Extract spawn points — all guaranteed to be floor tiles.
+    // 9. Extract spawn points — all guaranteed to be floor tiles.
     // ------------------------------------------------------------------
     let player_start =
         random_floor_in_room(&tiles, width, &start_room, &[], &mut rng);
@@ -217,6 +269,9 @@ pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
     let ladder_pos =
         random_floor_in_room(&tiles, width, &end_room, &[], &mut rng);
 
+    // Detect door orientation before tiles is moved into MapData.
+    let locked_door_orientation = detect_door_orientation(&tiles, width, height, door_x, door_y);
+
     MapData {
         width,
         height,
@@ -230,8 +285,53 @@ pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
         key_chest_spawn,
         spawner_pos,
         locked_door_pos: (door_x, door_y),
-        locked_door_orientation: DoorOrientation::NorthSouth,
+        locked_door_orientation,
         ladder_pos,
+    }
+}
+
+/// Applies a 90°-increment counter-clockwise rotation to a 2D tile offset.
+///
+/// Rotation 0 = unchanged, 1 = 90° CCW, 2 = 180°, 3 = 270° CCW.
+fn rotate_offset(ox: i32, oy: i32, rotation: u8) -> (i32, i32) {
+    match rotation % 4 {
+        1 => (-oy,  ox),
+        2 => (-ox, -oy),
+        3 => ( oy, -ox),
+        _ => ( ox,  oy),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Door orientation detection
+// ---------------------------------------------------------------------------
+
+/// Infers the [`DoorOrientation`] from the tiles immediately adjacent to the door.
+///
+/// Checks whether walls flank the door to the east+west (→ `NorthSouth` corridor) or
+/// to the north+south (→ `EastWest` corridor). Falls back to `NorthSouth` if neither
+/// pair is conclusive.
+fn detect_door_orientation(
+    tiles: &[TileType],
+    width: usize,
+    height: usize,
+    door_x: usize,
+    door_y: usize,
+) -> DoorOrientation {
+    let is_wall = |x: usize, y: usize| matches!(tiles[y * width + x], TileType::Wall);
+
+    let east_wall  = door_x + 1 < width  && is_wall(door_x + 1, door_y);
+    let west_wall  = door_x > 0          && is_wall(door_x - 1, door_y);
+    let north_wall = door_y + 1 < height && is_wall(door_x, door_y + 1);
+    let south_wall = door_y > 0          && is_wall(door_x, door_y - 1);
+
+    if north_wall && south_wall {
+        DoorOrientation::EastWest
+    } else if east_wall && west_wall {
+        DoorOrientation::NorthSouth
+    } else {
+        // Corridor is not cleanly axis-aligned at the door tile; default to north-south.
+        DoorOrientation::NorthSouth
     }
 }
 
@@ -527,41 +627,61 @@ mod tests {
 
     #[test]
     fn locked_door_neighbours_are_walls() {
+        // The two tiles that flank the door perpendicular to the corridor must be walls.
+        // For NorthSouth (N/S corridor): walls are east and west of the door.
+        // For EastWest (E/W corridor): walls are north and south of the door.
         let map = generate_level1(64, 64, 0);
         let (dx, dy) = map.locked_door_pos;
-        if dx > 0 {
-            assert!(
-                matches!(map.get(dx - 1, dy), TileType::Wall),
-                "tile left of door must be wall"
-            );
-        }
-        if dx + 1 < map.width {
-            assert!(
-                matches!(map.get(dx + 1, dy), TileType::Wall),
-                "tile right of door must be wall"
-            );
+        match map.locked_door_orientation {
+            DoorOrientation::NorthSouth => {
+                if dx > 0 {
+                    assert!(matches!(map.get(dx - 1, dy), TileType::Wall), "west of N/S door must be wall");
+                }
+                if dx + 1 < map.width {
+                    assert!(matches!(map.get(dx + 1, dy), TileType::Wall), "east of N/S door must be wall");
+                }
+            }
+            DoorOrientation::EastWest => {
+                if dy > 0 {
+                    assert!(matches!(map.get(dx, dy - 1), TileType::Wall), "south of E/W door must be wall");
+                }
+                if dy + 1 < map.height {
+                    assert!(matches!(map.get(dx, dy + 1), TileType::Wall), "north of E/W door must be wall");
+                }
+            }
         }
     }
 
     #[test]
-    fn locked_door_row_is_solid_wall_barrier() {
-        // Every tile in the door row must be a wall except the single door tile.
-        // A complete horizontal barrier guarantees cardinal-only movement cannot
-        // bypass the locked door regardless of how CA shaped the corridor.
+    fn locked_door_is_solid_barrier() {
+        // For N/S corridors the entire row at door_y must be wall except the door tile.
+        // For E/W corridors the entire column at door_x must be wall except the door tile.
+        // Either way, cardinal-only movement cannot bypass the locked door.
         for seed in [0u64, 1, 42, 999, 12345] {
             let map = generate_level1(64, 64, seed);
             let (dx, dy) = map.locked_door_pos;
-            for x in 0..map.width {
-                if x == dx {
-                    assert!(
-                        matches!(map.get(x, dy), TileType::Floor),
-                        "seed {seed}: door tile ({dx},{dy}) must be floor"
-                    );
-                } else {
-                    assert!(
-                        matches!(map.get(x, dy), TileType::Wall),
-                        "seed {seed}: row {dy} tile x={x} must be wall (bypass route)"
-                    );
+            match map.locked_door_orientation {
+                DoorOrientation::NorthSouth => {
+                    for x in 0..map.width {
+                        if x == dx {
+                            assert!(matches!(map.get(x, dy), TileType::Floor),
+                                "seed {seed}: door tile ({dx},{dy}) must be floor");
+                        } else {
+                            assert!(matches!(map.get(x, dy), TileType::Wall),
+                                "seed {seed}: N/S barrier row {dy} tile x={x} must be wall");
+                        }
+                    }
+                }
+                DoorOrientation::EastWest => {
+                    for y in 0..map.height {
+                        if y == dy {
+                            assert!(matches!(map.get(dx, y), TileType::Floor),
+                                "seed {seed}: door tile ({dx},{dy}) must be floor");
+                        } else {
+                            assert!(matches!(map.get(dx, y), TileType::Wall),
+                                "seed {seed}: E/W barrier col {dx} tile y={y} must be wall");
+                        }
+                    }
                 }
             }
         }
@@ -644,6 +764,52 @@ mod tests {
             assert_ne!(pos, (4, 4), "must avoid reserved tile");
             assert!(pos.0 >= 2 && pos.0 < 7, "must be inside room x range");
             assert!(pos.1 >= 2 && pos.1 < 7, "must be inside room y range");
+        }
+    }
+
+    // Helpers for detect_door_orientation tests: build a small 5×5 tile grid.
+    fn wall_grid() -> (Vec<TileType>, usize, usize) {
+        (vec![TileType::Wall; 5 * 5], 5, 5)
+    }
+
+    fn set_floor(tiles: &mut Vec<TileType>, width: usize, x: usize, y: usize) {
+        tiles[y * width + x] = TileType::Floor;
+    }
+
+    #[test]
+    fn detect_orientation_east_west_walls_gives_northsouth() {
+        // Door at (2,2); walls to east (3,2) and west (1,2) → NorthSouth corridor.
+        let (mut tiles, w, h) = wall_grid();
+        set_floor(&mut tiles, w, 2, 2); // door tile
+        set_floor(&mut tiles, w, 2, 1); // floor to south
+        set_floor(&mut tiles, w, 2, 3); // floor to north
+        // (1,2) and (3,2) remain walls
+        assert_eq!(detect_door_orientation(&tiles, w, h, 2, 2), DoorOrientation::NorthSouth);
+    }
+
+    #[test]
+    fn detect_orientation_north_south_walls_gives_eastwest() {
+        // Door at (2,2); walls to north (2,3) and south (2,1) → EastWest corridor.
+        let (mut tiles, w, h) = wall_grid();
+        set_floor(&mut tiles, w, 2, 2); // door tile
+        set_floor(&mut tiles, w, 1, 2); // floor to west
+        set_floor(&mut tiles, w, 3, 2); // floor to east
+        // (2,1) and (2,3) remain walls
+        assert_eq!(detect_door_orientation(&tiles, w, h, 2, 2), DoorOrientation::EastWest);
+    }
+
+    #[test]
+    fn locked_door_orientation_matches_tile_neighbors() {
+        // Verify that across multiple seeds, the reported orientation matches
+        // what detect_door_orientation would conclude from the actual tiles.
+        for seed in [0u64, 1, 42, 999, 12345] {
+            let map = generate_level1(64, 64, seed);
+            let (dx, dy) = map.locked_door_pos;
+            let detected = detect_door_orientation(&map.tiles, map.width, map.height, dx, dy);
+            assert_eq!(
+                map.locked_door_orientation, detected,
+                "seed {seed}: stored orientation doesn't match tile neighbors"
+            );
         }
     }
 }

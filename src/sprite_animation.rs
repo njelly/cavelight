@@ -3,12 +3,19 @@ use bevy_common_assets::ron::RonAssetPlugin;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+fn fps_unset() -> f32 { 0.0 }
+
 /// Frame indices and playback speed for a single named animation.
+///
+/// `fps` may be omitted in the RON file for single-frame (static) entries.
+/// When omitted it defaults to `0.0`, which the animation system treats as
+/// "no playback speed required." Multi-frame entries must supply a positive `fps`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnimationData {
     /// Atlas frame indices to play in sequence.
     pub frames: Vec<usize>,
-    /// Playback speed in frames per second.
+    /// Playback speed in frames per second. Omit for single-frame sprites.
+    #[serde(default = "fps_unset")]
     pub fps: f32,
 }
 
@@ -63,7 +70,14 @@ impl SpriteAnimation {
         }
     }
 
-
+    /// Switches to a different animation, resetting playback to the first frame.
+    ///
+    /// Use this to change an entity's animation at runtime (e.g. open ↔ closed door).
+    pub fn switch_to(&mut self, name: impl Into<String>) {
+        self.name = name.into();
+        self.frame_index = 0;
+        self.is_complete = false;
+    }
 }
 
 /// Loads `sprite_animations.ron` and drives [`SpriteAnimation`] components each frame.
@@ -105,7 +119,24 @@ fn animate_sprites(
             continue;
         };
 
-        // Sync duration to library fps so hot-reload changes propagate immediately.
+        // Single-frame entries are static sprites: apply the frame immediately without
+        // a timer. This ensures atlas switches (e.g. door open/close, chest open) are
+        // instantaneous rather than delayed by the fps interval.
+        if data.frames.len() == 1 {
+            if let Some(atlas) = &mut sprite.texture_atlas {
+                atlas.index = data.frames[0];
+            }
+            if !animation.looping {
+                animation.is_complete = true;
+            }
+            continue;
+        }
+
+        // Multi-frame animation: advance on a timer driven by the library fps.
+        if data.fps <= 0.0 {
+            warn!("SpriteAnimation: '{}' has multiple frames but no fps set", animation.name);
+            continue;
+        }
         let frame_duration = std::time::Duration::from_secs_f32(1.0 / data.fps);
         if animation.timer.duration() != frame_duration {
             animation.timer.set_duration(frame_duration);
@@ -164,6 +195,18 @@ mod tests {
         assert_eq!(anim.frame_index, 0);
     }
 
+    #[test]
+    fn switch_to_resets_name_and_frame() {
+        let mut anim = SpriteAnimation::with_name("door_northsouth_closed", false);
+        // Simulate some playback progress.
+        anim.frame_index = 2;
+        anim.is_complete = true;
+        anim.switch_to("door_northsouth_open");
+        assert_eq!(anim.name, "door_northsouth_open");
+        assert_eq!(anim.frame_index, 0);
+        assert!(!anim.is_complete);
+    }
+
     // --- advance_frame ---
 
     #[test]
@@ -196,14 +239,27 @@ mod tests {
         assert_eq!(advance_frame(0, 1, false), (0, true));
     }
 
+    #[test]
+    fn single_frame_animation_is_identified_by_frame_count() {
+        // Verify that the frame-count check used by animate_sprites to skip the timer
+        // correctly distinguishes static sprites (1 frame) from animated ones (>1 frame).
+        let src = r#"{
+            "door_closed": (frames: [146]),
+            "player_idle": (frames: [0, 1], fps: 2.0)
+        }"#;
+        let lib: SpriteAnimationLibrary = ron::from_str(src).unwrap();
+        assert_eq!(lib.0["door_closed"].frames.len(), 1, "door_closed should be static");
+        assert_eq!(lib.0["player_idle"].frames.len(), 2, "player_idle should be animated");
+    }
+
     // --- SpriteAnimationLibrary deserialization ---
 
     #[test]
     fn library_deserializes_from_ron() {
         let src = r#"{
             "player_idle":  (frames: [0, 1], fps: 6.0),
-            "chest_closed": (frames: [3],    fps: 1.0),
-            "chest_open":   (frames: [4],    fps: 1.0),
+            "chest_closed": (frames: [3]),
+            "chest_open":   (frames: [4]),
         }"#;
         let lib: SpriteAnimationLibrary = ron::from_str(src).unwrap();
 
@@ -211,11 +267,14 @@ mod tests {
         assert_eq!(idle.frames, vec![0, 1]);
         assert_eq!(idle.fps, 6.0);
 
+        // Single-frame entries omit fps; the default sentinel is 0.0.
         let closed = lib.0.get("chest_closed").expect("chest_closed missing");
         assert_eq!(closed.frames, vec![3]);
+        assert_eq!(closed.fps, 0.0);
 
         let open = lib.0.get("chest_open").expect("chest_open missing");
         assert_eq!(open.frames, vec![4]);
+        assert_eq!(open.fps, 0.0);
     }
 
     #[test]
