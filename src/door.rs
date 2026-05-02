@@ -10,19 +10,23 @@ use crate::player_input::PlayerControlled;
 use crate::sprite_animation::SpriteAnimation;
 use crate::GRID_SIZE;
 
-/// Marks the locked door entity.
+/// State and display names for a door entity.
 ///
-/// A door starts locked. When the player interacts with it while holding a key the
-/// key is consumed, the door opens (sprite swaps to the open frame and the collider
-/// is removed so the player can pass), and the entity is no longer [`Interactable`].
-///
-/// If the player interacts without a key the dialogue system shows a "locked" message.
+/// Doors start locked and closed. Using a key unlocks AND opens the door.
+/// After unlocking, interaction toggles between open and closed.
+/// Closed doors have a static [`Collider`] that blocks all [`crate::grid_mover::GridMover`]
+/// entities — player, NPCs, and enemies alike.
 #[derive(Component, Debug, Reflect)]
 #[reflect(Component)]
 pub struct LockedDoor {
-    /// `true` until the player unlocks the door with a key.
+    /// `true` until the player unlocks the door with a key. A locked door cannot
+    /// be toggled — the player must use a key first.
     pub locked: bool,
-    /// Sprite animation name to swap to when the door opens.
+    /// Current open/closed state. `true` = passable, `false` = solid.
+    pub is_open: bool,
+    /// Animation name for the closed sprite.
+    closed_animation: &'static str,
+    /// Animation name for the open sprite.
     open_animation: &'static str,
 }
 
@@ -43,10 +47,8 @@ impl Plugin for DoorPlugin {
 
 /// Spawns the locked door at [`LockedDoorSpawnPoint`].
 ///
-/// The door is a static solid entity. Its sprite and open animation are chosen
-/// based on the corridor orientation reported by the level generator.
-/// [`Interactable`] allows the player to trigger an interaction by pressing Space
-/// while facing the door tile.
+/// Chooses the correct closed-sprite and open-sprite animation based on corridor
+/// orientation. The door starts locked, closed, and solid.
 fn spawn_door(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -56,21 +58,25 @@ fn spawn_door(
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let layout_handle = layouts.add(layout);
 
-    // Level 1 only has north-south corridors. Additional orientations will be
-    // added alongside new DoorOrientation variants when east-west doors are needed.
-    let (closed_anim, open_anim, frame_idx) = match spawn_point.orientation {
+    let (closed_anim, open_anim, closed_frame) = match spawn_point.orientation {
         DoorOrientation::NorthSouth => ("door_northsouth_closed", "door_northsouth_open", 146usize),
+        DoorOrientation::EastWest   => ("door_eastwest_closed",   "door_eastwest_open",   145usize),
     };
 
     commands.spawn((
-        LockedDoor { locked: true, open_animation: open_anim },
+        LockedDoor {
+            locked: true,
+            is_open: false,
+            closed_animation: closed_anim,
+            open_animation: open_anim,
+        },
         Interactable,
         Sprite::from_atlas_image(
             asset_server.load("atlas_8x8.png"),
-            TextureAtlas { layout: layout_handle, index: frame_idx },
+            TextureAtlas { layout: layout_handle, index: closed_frame },
         ),
         Transform::from_xyz(spawn_point.pos.x, spawn_point.pos.y, 0.0),
-        SpriteAnimation::with_name(closed_anim, true),
+        SpriteAnimation::with_name(closed_anim, false),
         RigidBody::Static,
         Collider::rectangle(GRID_SIZE, GRID_SIZE),
     ));
@@ -80,59 +86,87 @@ fn spawn_door(
 // Interaction observer
 // ---------------------------------------------------------------------------
 
-/// Handles player interaction with the locked door.
+/// Handles player interaction with the door.
 ///
-/// - **Key in inventory**: consumes the key, switches to the open sprite, removes
-///   the collider and [`Interactable`] so the player can walk through and the door
-///   can no longer be re-triggered.
-/// - **No key**: opens the dialogue panel with a "locked" message.
+/// **Locked door:**
+/// - Player has a key → consume the key, unlock, and open the door.
+/// - Player has no key → show a "locked" dialogue.
+///
+/// **Unlocked door:**
+/// - Toggles between open (passable, no collider) and closed (solid, collider restored).
 fn on_door_interact(
     on: On<InteractEvent>,
-    mut doors: Query<(&mut LockedDoor, &mut Sprite)>,
+    mut doors: Query<(&mut LockedDoor, &mut SpriteAnimation)>,
     mut player_inventory: Query<&mut Inventory, With<PlayerControlled>>,
     mut active_dialogue: ResMut<ActiveDialogue>,
     mut input_mode: ResMut<InputMode>,
     mut commands: Commands,
 ) {
-    let Ok((mut door, mut sprite)) = doors.get_mut(on.event().entity) else { return };
-    if !door.locked {
-        return;
-    }
+    let entity = on.event().entity;
+    let Ok((mut door, mut anim)) = doors.get_mut(entity) else { return };
 
-    let Ok(mut inventory) = player_inventory.single_mut() else { return };
+    if door.locked {
+        let Ok(mut inventory) = player_inventory.single_mut() else { return };
 
-    // Search the player's inventory for a key stack.
-    let key_slot = (0..inventory.len()).find(|&slot| {
-        inventory.get(slot).map_or(false, |s| s.id == "key")
-    });
+        // Search the player's inventory for a key.
+        let key_slot = (0..inventory.len()).find(|&i| {
+            inventory.get(i).map_or(false, |s| s.id == "key")
+        });
 
-    if let Some(slot) = key_slot {
-        // Consume the key and open the door.
-        inventory.take(slot);
-        door.locked = false;
-
-        // Swap the sprite to the open animation.
-        if let Some(atlas) = &mut sprite.texture_atlas {
-            // Open-frame index is the frame immediately after the closed one in the atlas row.
-            // NorthSouth open = 210, EastWest open = 209 (from sprite_animations.ron).
-            atlas.index = match door.open_animation {
-                "door_northsouth_open" => 210,
-                _ => 209,
-            };
+        match key_slot {
+            Some(slot) => {
+                inventory.take(slot);
+                door.locked = false;
+                // Unlocking always opens the door immediately.
+                set_door_open(&mut door, &mut anim, entity, &mut commands);
+            }
+            None => {
+                active_dialogue.open(
+                    "Locked Door",
+                    vec!["The door is locked. You'll need a key.".to_string()],
+                    &mut input_mode,
+                );
+            }
         }
-
-        // Remove the collider and interactable so the player can walk through.
-        commands
-            .entity(on.event().entity)
-            .remove::<(Collider, RigidBody, Interactable)>();
     } else {
-        // No key — show the locked message via the dialogue system.
-        active_dialogue.open(
-            "Locked Door",
-            vec!["The door is locked. You'll need a key.".to_string()],
-            &mut input_mode,
-        );
+        // Toggle open ↔ closed.
+        if door.is_open {
+            set_door_closed(&mut door, &mut anim, entity, &mut commands);
+        } else {
+            set_door_open(&mut door, &mut anim, entity, &mut commands);
+        }
     }
+}
+
+/// Opens the door: swaps to the open animation and marks the collider as a sensor.
+///
+/// The [`RigidBody::Static`] and [`Collider`] components are kept at all times so the
+/// physics world always has a shape to query — removing and re-adding them would create
+/// a window where [`SpatialQuery::point_intersections`] misses the door, causing dropped
+/// interaction inputs. Adding [`Sensor`] makes the collider passable while still
+/// detectable; [`crate::grid_mover::GridMover`] already skips sensor entities.
+fn set_door_open(
+    door: &mut LockedDoor,
+    anim: &mut SpriteAnimation,
+    entity: Entity,
+    commands: &mut Commands,
+) {
+    door.is_open = true;
+    anim.switch_to(door.open_animation);
+    commands.entity(entity).insert(Sensor);
+}
+
+/// Closes the door: swaps to the closed animation and removes the sensor flag,
+/// restoring the collider to a solid blocking shape.
+fn set_door_closed(
+    door: &mut LockedDoor,
+    anim: &mut SpriteAnimation,
+    entity: Entity,
+    commands: &mut Commands,
+) {
+    door.is_open = false;
+    anim.switch_to(door.closed_animation);
+    commands.entity(entity).remove::<Sensor>();
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +179,24 @@ mod tests {
 
     #[test]
     fn locked_door_starts_locked() {
-        let door = LockedDoor { locked: true, open_animation: "door_northsouth_open" };
+        let door = LockedDoor {
+            locked: true,
+            is_open: false,
+            closed_animation: "door_northsouth_closed",
+            open_animation: "door_northsouth_open",
+        };
         assert!(door.locked);
+        assert!(!door.is_open);
+    }
+
+    #[test]
+    fn locked_door_eastwest_variant_exists() {
+        let door = LockedDoor {
+            locked: true,
+            is_open: false,
+            closed_animation: "door_eastwest_closed",
+            open_animation: "door_eastwest_open",
+        };
+        assert_eq!(door.closed_animation, "door_eastwest_closed");
     }
 }

@@ -113,10 +113,12 @@ impl Plugin for GridMoverPlugin {
 /// When a movement step completes and a direction is still set (key held), the next step begins
 /// in the same frame — producing seamless continuous movement with no idle frame between cells.
 /// Before committing to a new step, the target tile center is tested against wall colliders using
-/// [`SpatialQuery::point_intersections`]; any hit blocks the move.
+/// [`SpatialQuery::point_intersections`]; sensor colliders (e.g. open doors) are passable and
+/// are excluded from the blocked check.
 fn move_grid_movers(
     time: Res<Time>,
     spatial_query: SpatialQuery,
+    sensor_query: Query<(), With<Sensor>>,
     mut query: Query<(&mut GridMover, &mut Transform)>,
 ) {
     for (mut mover, mut transform) in &mut query {
@@ -140,10 +142,11 @@ fn move_grid_movers(
             let current = snap_to_grid(transform.translation.truncate(), mover.grid_size);
             let potential_target = current + dir.as_vec2() * mover.grid_size;
 
-            // Reject the move if the target tile center is inside a wall collider.
-            let blocked = !spatial_query
+            // Reject the move if the target tile center contains a solid (non-sensor) collider.
+            let blocked = spatial_query
                 .point_intersections(potential_target, &SpatialQueryFilter::default())
-                .is_empty();
+                .iter()
+                .any(|&e| !sensor_query.contains(e));
             if blocked {
                 continue;
             }

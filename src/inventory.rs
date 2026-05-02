@@ -21,10 +21,17 @@ const PANEL_GAP_VH: f32 = 4.0;
 const HOTBAR_SLOT_VH: f32 = SLOT_VH;
 const HOTBAR_PADDING_VH: f32 = 0.8;
 const HOTBAR_BOTTOM_MARGIN_VH: f32 = 1.5;
+/// Height of the ammo sub-view strip that floats below the equipped hotbar slot.
+const AMMO_SUBVIEW_VH: f32 = 3.2;
+/// Gap between a hotbar slot and its ammo sub-view.
+const AMMO_SUBVIEW_GAP_VH: f32 = 0.5;
 /// Total vh the hotbar occupies from the bottom edge of the screen.
 ///
 /// Used by sibling modules (e.g. dialogue) to anchor panels directly above the hotbar.
-pub const HOTBAR_HEIGHT_VH: f32 = HOTBAR_SLOT_VH + 2.0 * HOTBAR_PADDING_VH + HOTBAR_BOTTOM_MARGIN_VH;
+/// Includes space for the ammo sub-view that appears beneath each slot.
+pub const HOTBAR_HEIGHT_VH: f32 =
+    HOTBAR_SLOT_VH + AMMO_SUBVIEW_GAP_VH + AMMO_SUBVIEW_VH
+    + 2.0 * HOTBAR_PADDING_VH + HOTBAR_BOTTOM_MARGIN_VH;
 
 /// Index of the first hotbar slot inside the player's [`Inventory`].
 ///
@@ -128,6 +135,22 @@ struct SlotIcon;
 #[derive(Component)]
 struct StackCount;
 
+/// Container node shown in the bottom-left corner of an equipped hotbar slot when the
+/// equipped item uses ammo and the player has that ammo in their inventory.
+///
+/// Carries [`InventorySlotRef`] matching its hotbar slot. Visibility is controlled by
+/// [`sync_ammo_subview`].
+#[derive(Component)]
+struct AmmoSubView;
+
+/// Marker for the ammo icon [`ImageNode`] inside an [`AmmoSubView`].
+#[derive(Component)]
+struct AmmoIcon;
+
+/// Marker for the ammo count [`Text`] inside an [`AmmoSubView`].
+#[derive(Component)]
+struct AmmoCount;
+
 /// Marker for the `X` close button in the inventory header.
 #[derive(Component)]
 struct CloseInventoryButton;
@@ -174,6 +197,7 @@ impl Plugin for InventoryPlugin {
                     select_hotbar_slot,
                     sync_hotbar_borders,
                     sync_stack_counts,
+                    sync_ammo_subview,
                 ),
             );
     }
@@ -520,53 +544,108 @@ fn spawn_hotbar(mut commands: Commands, asset_server: Res<AssetServer>) {
                         panel: InventoryPanel::Player,
                         index: HOTBAR_START + i,
                     };
+                    // Column wrapper: slot on top, ammo sub-view floating below.
                     hotbar
-                        .spawn((
-                            Node {
-                                width: Val::Vh(HOTBAR_SLOT_VH),
-                                height: Val::Vh(HOTBAR_SLOT_VH),
-                                border: UiRect::all(Val::Px(SLOT_BORDER_PX)),
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                overflow: Overflow::clip(),
-                                ..default()
-                            },
-                            BackgroundColor(slot_bg),
-                            BorderColor::all(slot_border),
-                            Interaction::default(),
-                            HotbarSlot,
-                            slot_ref,
-                        ))
-                        .with_children(|slot| {
-                            slot.spawn((
-                                Node {
-                                    width: Val::Percent(100.0),
-                                    height: Val::Percent(100.0),
-                                    ..default()
-                                },
-                                ImageNode::default(),
-                                Visibility::Hidden,
-                                SlotIcon,
-                                slot_ref,
-                            ));
-                            slot.spawn((
-                                Text::new(""),
-                                TextFont {
-                                    font: count_font.clone(),
-                                    font_size: 8.0,
-                                    ..default()
-                                },
-                                TextColor(Color::WHITE),
-                                Node {
-                                    position_type: PositionType::Absolute,
-                                    bottom: Val::Px(1.0),
-                                    right: Val::Px(1.0),
-                                    ..default()
-                                },
-                                Visibility::Hidden,
-                                StackCount,
-                                slot_ref,
-                            ));
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::Center,
+                            row_gap: Val::Vh(AMMO_SUBVIEW_GAP_VH),
+                            ..default()
+                        })
+                        .with_children(|wrapper| {
+                            // --- Slot ---
+                            wrapper
+                                .spawn((
+                                    Node {
+                                        width: Val::Vh(HOTBAR_SLOT_VH),
+                                        height: Val::Vh(HOTBAR_SLOT_VH),
+                                        border: UiRect::all(Val::Px(SLOT_BORDER_PX)),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        overflow: Overflow::clip(),
+                                        ..default()
+                                    },
+                                    BackgroundColor(slot_bg),
+                                    BorderColor::all(slot_border),
+                                    Interaction::default(),
+                                    HotbarSlot,
+                                    slot_ref,
+                                ))
+                                .with_children(|slot| {
+                                    slot.spawn((
+                                        Node {
+                                            width: Val::Percent(100.0),
+                                            height: Val::Percent(100.0),
+                                            ..default()
+                                        },
+                                        ImageNode::default(),
+                                        Visibility::Hidden,
+                                        SlotIcon,
+                                        slot_ref,
+                                    ));
+                                    slot.spawn((
+                                        Text::new(""),
+                                        TextFont {
+                                            font: count_font.clone(),
+                                            font_size: 11.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::WHITE),
+                                        Node {
+                                            position_type: PositionType::Absolute,
+                                            bottom: Val::Px(1.0),
+                                            right: Val::Px(1.0),
+                                            ..default()
+                                        },
+                                        Visibility::Hidden,
+                                        StackCount,
+                                        slot_ref,
+                                    ));
+                                });
+
+                            // --- Ammo sub-view (centered below slot) ---
+                            wrapper
+                                .spawn((
+                                    Node {
+                                        width: Val::Vh(HOTBAR_SLOT_VH),
+                                        height: Val::Vh(AMMO_SUBVIEW_VH),
+                                        flex_direction: FlexDirection::Row,
+                                        align_items: AlignItems::Center,
+                                        justify_content: JustifyContent::Center,
+                                        column_gap: Val::Px(3.0),
+                                        padding: UiRect::horizontal(Val::Px(3.0)),
+                                        border: UiRect::all(Val::Px(SLOT_BORDER_PX)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(slot_bg),
+                                    BorderColor::all(slot_border),
+                                    Visibility::Hidden,
+                                    AmmoSubView,
+                                    slot_ref,
+                                ))
+                                .with_children(|sub| {
+                                    sub.spawn((
+                                        Node {
+                                            height: Val::Percent(80.0),
+                                            aspect_ratio: Some(1.0),
+                                            ..default()
+                                        },
+                                        ImageNode::default(),
+                                        AmmoIcon,
+                                        slot_ref,
+                                    ));
+                                    sub.spawn((
+                                        Text::new(""),
+                                        TextFont {
+                                            font: count_font.clone(),
+                                            font_size: 9.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::WHITE),
+                                        AmmoCount,
+                                        slot_ref,
+                                    ));
+                                });
                         });
                 }
             });
@@ -884,6 +963,76 @@ fn sync_stack_counts(
             }
             None => {
                 *vis = Visibility::Hidden;
+            }
+        }
+    }
+}
+
+/// Shows an ammo sub-view in the bottom-left corner of the equipped hotbar slot.
+///
+/// The sub-view displays the ammo item's icon and total count whenever the equipped
+/// item has a non-`None` `ammo_id` and the player holds at least one of that ammo.
+/// Hidden on all other slots and when ammo is exhausted.
+fn sync_ammo_subview(
+    equipped: Res<EquippedHotbarSlot>,
+    item_library: Option<Res<ItemLibrary>>,
+    player_inv: Query<&Inventory, With<PlayerControlled>>,
+    mut subviews: Query<(&InventorySlotRef, &mut Visibility), With<AmmoSubView>>,
+    mut ammo_icons: Query<(&InventorySlotRef, &mut ImageNode), With<AmmoIcon>>,
+    mut ammo_counts: Query<(&InventorySlotRef, &mut Text), With<AmmoCount>>,
+) {
+    let Some(library) = item_library else { return };
+    let Ok(inventory) = player_inv.single() else { return };
+
+    for (slot_ref, mut vis) in &mut subviews {
+        let hotbar_idx = slot_ref.index.saturating_sub(HOTBAR_START);
+
+        // Only show on the currently equipped slot.
+        let Some(equipped_idx) = equipped.0 else {
+            *vis = Visibility::Hidden;
+            continue;
+        };
+        if hotbar_idx != equipped_idx {
+            *vis = Visibility::Hidden;
+            continue;
+        }
+
+        // Resolve the ammo_id for the equipped item.
+        let ammo_id = inventory
+            .get(slot_ref.index)
+            .and_then(|stack| library.def(&stack.id))
+            .and_then(|def| def.ammo_id.clone());
+
+        let Some(ammo_id) = ammo_id else {
+            *vis = Visibility::Hidden;
+            continue;
+        };
+
+        // Sum all ammo across the inventory.
+        let total: u32 = (0..inventory.len())
+            .filter_map(|i| inventory.get(i))
+            .filter(|s| s.id == ammo_id)
+            .map(|s| s.count)
+            .sum();
+
+        if total == 0 {
+            *vis = Visibility::Hidden;
+            continue;
+        }
+
+        *vis = Visibility::Inherited;
+
+        // Update icon and count for this slot.
+        if let Some(icon_handle) = library.icon(&ammo_id) {
+            for (icon_ref, mut img) in &mut ammo_icons {
+                if icon_ref.index == slot_ref.index {
+                    img.image = icon_handle.clone();
+                }
+            }
+        }
+        for (count_ref, mut text) in &mut ammo_counts {
+            if count_ref.index == slot_ref.index {
+                **text = total.to_string();
             }
         }
     }

@@ -1,6 +1,7 @@
 // Sprite animation library for Cavelight.
-// Each entry maps a name to a list of atlas frame indices and a playback speed.
+// Each entry maps a name to a list of atlas frame indices and an optional playback speed.
 // Frame indices refer to tiles in atlas_8x8.png (512x512, 64x64 grid of 8x8 tiles).
+// Single-frame entries omit fps — they display instantly with no timer.
 // To add a new animation, add a new entry here — no recompile needed.
 {
     // Player
@@ -24,34 +25,34 @@
     "flower_patch": (frames: [512, 513], fps: 1.135),
 
     // Chest
-    "chest_closed": (frames: [3], fps: 1),
-    "chest_open":   (frames: [4], fps: 1),
+    "chest_closed": (frames: [3]),
+    "chest_open":   (frames: [4]),
 
     // Signpost
-    "signpost": (frames: [136], fps: 1),
+    "signpost": (frames: [136]),
 
     // Campfire
     "campfire": (frames: [75, 76], fps: 8),
     "campfire_smoldering": (frames: [139, 140], fps: 0.4),
-    "campfire_extinguished": (frames: [141], fps: 1),
+    "campfire_extinguished": (frames: [141]),
 
     // Door
-    "door_eastwest_closed": (frames: [145], fps: 1),
-    "door_eastwest_open": (frames: [209], fps: 1),
-    "door_northsouth_closed": (frames: [146], fps: 1),
-    "door_northsouth_open": (frames: [210], fps: 1),
+    "door_eastwest_closed": (frames: [146]),
+    "door_eastwest_open":   (frames: [210]),
+    "door_northsouth_closed": (frames: [145]),
+    "door_northsouth_open":   (frames: [209]),
 
     // Ladder
-    "ladder_up": (frames: [16], fps: 1),
-    "ladder_down": (frames: [15], fps: 1),
+    "ladder_up":   (frames: [16]),
+    "ladder_down": (frames: [15]),
 
     // Spawner
-    "spawner_pulse": (frames: [25, 24, 23], fps: 4.0),
-    "spawner_source": (frames: [18], fps: 1.0),
+    "spawner_pulse":  (frames: [25, 24, 23], fps: 4.0),
+    "spawner_source": (frames: [18]),
 
     // DirectionArrow
-    "direction_arrow_east": (frames: [22], fps: 1),
-    "direction_arrow_south": (frames: [20], fps: 1),
-    "direction_arrow_west": (frames: [21], fps: 1),
-    "direction_arrow_north": (frames: [19], fps: 1),
+    "direction_arrow_east":  (frames: [22]),
+    "direction_arrow_south": (frames: [20]),
+    "direction_arrow_west":  (frames: [21]),
+    "direction_arrow_north": (frames: [19]),
 }
