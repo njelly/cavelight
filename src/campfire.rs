@@ -1,9 +1,11 @@
+use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_light_2d::prelude::*;
 use rand::{Rng, thread_rng};
 
 use crate::level::CampfireSpawnPoint;
 use crate::sprite_animation::SpriteAnimation;
+use crate::GRID_SIZE;
 
 /// Marks the campfire entity.
 #[derive(Component, Debug, Reflect)]
@@ -77,6 +79,8 @@ fn spawn_campfire(
             ),
             Transform::from_xyz(spawn_point.0.x, spawn_point.0.y, 0.0),
             SpriteAnimation::with_name("campfire", true),
+            RigidBody::Static,
+            Collider::rectangle(GRID_SIZE, GRID_SIZE),
         ))
         .with_children(|parent| {
             // Warm orange-red fire light. Intensity and radius are the "calm" baseline;

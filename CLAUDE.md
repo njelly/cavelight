@@ -30,9 +30,10 @@ cavelight/
 │   ├── inventory.rs                # InventoryPlugin — dual-panel (Chest/Player) 4x4 inventory UI + hotbar. InputMode resource gates player input. HeldItem + slot-swap drag model. ActiveChest tracks open chest.
 │   ├── item.rs                     # ItemPlugin — ItemDef/ItemDefList (RON asset), ItemStack, Inventory component, ItemLibrary resource. Loads item_definitions.ron and pre-loads icon handles.
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, Facing component, sprite flipping. PlayerControlled + PlayerInput + Facing; bridges to GridMover. Gated on InputMode::Playing.
+│   ├── signpost.rs                 # SignpostPlugin — static Interactable signpost at SignpostSpawnPoint; RigidBody + Collider; ready for dialogue system.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 │   └── level/                      # LevelPlugin — procedural cave generation and tile spawning.
-│       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint, CampfireSpawnPoint, and ChestSpawnPoint.
+│       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint, CampfireSpawnPoint, ChestSpawnPoint, and SignpostSpawnPoint.
 │       ├── generator.rs            # Cellular automata cave generation; flood-fill connectivity; player_start (center) and campfire_spawn (farthest floor tile).
 │       └── tile.rs                 # TileType enum (Wall/Floor) with per-type render colors. Tile marker component.
 ├── Cargo.toml

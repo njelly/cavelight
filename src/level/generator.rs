@@ -18,6 +18,8 @@ pub struct MapData {
     pub campfire_spawn: (usize, usize),
     /// Grid-space coordinate for the chest spawn — a random floor tile distinct from the other spawns.
     pub chest_spawn: (usize, usize),
+    /// Grid-space coordinate for the signpost spawn — a random floor tile distinct from all other spawns.
+    pub signpost_spawn: (usize, usize),
 }
 
 impl MapData {
@@ -49,8 +51,14 @@ pub fn generate_cave(width: usize, height: usize) -> MapData {
 
     let (player_start, campfire_spawn) = isolate_largest_region(&mut tiles, width, height);
     let chest_spawn = pick_chest_spawn(&tiles, width, player_start, campfire_spawn, &mut rng);
+    let signpost_spawn = pick_random_floor(
+        &tiles,
+        width,
+        &[player_start, campfire_spawn, chest_spawn],
+        &mut rng,
+    );
 
-    MapData { width, height, tiles, player_start, campfire_spawn, chest_spawn }
+    MapData { width, height, tiles, player_start, campfire_spawn, chest_spawn, signpost_spawn }
 }
 
 /// Fills the map randomly with ~45% walls. Border tiles are always walls.
@@ -176,12 +184,24 @@ fn pick_chest_spawn(
     campfire_spawn: (usize, usize),
     rng: &mut impl Rng,
 ) -> (usize, usize) {
+    pick_random_floor(tiles, width, &[player_start, campfire_spawn], rng)
+}
+
+/// Picks a random floor tile that does not appear in `reserved`.
+///
+/// Falls back to `reserved[0]` in the degenerate case where no free floor tile exists.
+pub fn pick_random_floor(
+    tiles: &[TileType],
+    width: usize,
+    reserved: &[(usize, usize)],
+    rng: &mut impl Rng,
+) -> (usize, usize) {
     let candidates: Vec<(usize, usize)> = tiles
         .iter()
         .enumerate()
         .filter_map(|(idx, tile)| {
             let pos = (idx % width, idx / width);
-            if matches!(tile, TileType::Floor) && pos != player_start && pos != campfire_spawn {
+            if matches!(tile, TileType::Floor) && !reserved.contains(&pos) {
                 Some(pos)
             } else {
                 None
@@ -190,7 +210,7 @@ fn pick_chest_spawn(
         .collect();
 
     if candidates.is_empty() {
-        return player_start;
+        return reserved.first().copied().unwrap_or((0, 0));
     }
 
     candidates[rng.gen_range(0..candidates.len())]
