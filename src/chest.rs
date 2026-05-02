@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::interaction::{Interactable, InteractEvent};
 use crate::inventory::{ActiveChest, InputMode};
 use crate::item::{Inventory, ItemStack};
-use crate::level::ChestSpawnPoint;
+use crate::level::{KeyChestSpawnPoint, WeaponChestSpawnPoint};
 use crate::GRID_SIZE;
 
 /// State component for a chest entity.
@@ -17,35 +17,61 @@ pub struct Chest {
     pub is_open: bool,
 }
 
-/// Spawns the chest and registers the observer that handles interactions.
+/// Spawns both level chests and registers the shared interaction observer.
 pub struct ChestPlugin;
 
 impl Plugin for ChestPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Chest>()
-            .add_systems(Startup, spawn_chest)
+            .add_systems(Startup, (spawn_weapon_chest, spawn_key_chest))
             .add_observer(on_chest_interact);
     }
 }
 
-/// Spawns the chest at [`ChestSpawnPoint`] with starting inventory (8 arrows + 1 bow).
-///
-/// The chest starts closed (atlas frame 3). [`Interactable`] lets the interaction
-/// system detect it, and a static [`Collider`] prevents the player walking through it.
-fn spawn_chest(
+// ---------------------------------------------------------------------------
+// Spawners
+// ---------------------------------------------------------------------------
+
+/// Spawns the weapon chest at [`WeaponChestSpawnPoint`] pre-loaded with a bow and arrows.
+fn spawn_weapon_chest(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
-    spawn_point: Res<ChestSpawnPoint>,
+    spawn_point: Res<WeaponChestSpawnPoint>,
 ) {
-    let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
-    let layout_handle = layouts.add(layout);
-
-    // Stub: always start with 8 arrows and 1 bow. The level generator will
-    // eventually vary chest contents based on depth / seed.
     let mut inventory = Inventory::new(16);
     inventory.insert_first_empty(ItemStack::new("arrow", 8));
     inventory.insert_first_empty(ItemStack::new("bow", 1));
+
+    spawn_chest_entity(&mut commands, &asset_server, &mut layouts, spawn_point.0, inventory);
+}
+
+/// Spawns the key chest at [`KeyChestSpawnPoint`] pre-loaded with a key.
+fn spawn_key_chest(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+    spawn_point: Res<KeyChestSpawnPoint>,
+) {
+    let mut inventory = Inventory::new(16);
+    inventory.insert_first_empty(ItemStack::new("key", 1));
+
+    spawn_chest_entity(&mut commands, &asset_server, &mut layouts, spawn_point.0, inventory);
+}
+
+/// Spawns a chest entity at `pos` with the given `inventory`.
+///
+/// The chest starts closed (atlas frame 3). [`Interactable`] lets the interaction
+/// system detect it, and a static [`Collider`] prevents the player walking through it.
+fn spawn_chest_entity(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    layouts: &mut Assets<TextureAtlasLayout>,
+    pos: Vec2,
+    inventory: Inventory,
+) {
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
+    let layout_handle = layouts.add(layout);
 
     commands.spawn((
         Chest { is_open: false },
@@ -53,16 +79,17 @@ fn spawn_chest(
         Interactable,
         Sprite::from_atlas_image(
             asset_server.load("atlas_8x8.png"),
-            TextureAtlas {
-                layout: layout_handle,
-                index: 3,
-            },
+            TextureAtlas { layout: layout_handle, index: 3 },
         ),
-        Transform::from_xyz(spawn_point.0.x, spawn_point.0.y, 0.0),
+        Transform::from_xyz(pos.x, pos.y, 0.0),
         RigidBody::Static,
         Collider::rectangle(GRID_SIZE, GRID_SIZE),
     ));
 }
+
+// ---------------------------------------------------------------------------
+// Interaction observer
+// ---------------------------------------------------------------------------
 
 /// Observer that toggles a chest open/closed on player interaction.
 ///
@@ -86,7 +113,5 @@ fn on_chest_interact(
             active_chest.0 = Some(on.event().entity);
             *input_mode = InputMode::Inventory;
         }
-        // When closing the chest the inventory was already dismissed by the UI —
-        // no need to change InputMode here.
     }
 }

@@ -1,6 +1,7 @@
 mod generator;
 mod tile;
 
+pub use generator::DoorOrientation;
 pub use tile::Tile;
 
 use avian2d::prelude::*;
@@ -10,13 +11,13 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_light_2d::prelude::*;
 use rand::thread_rng;
 
-use generator::generate_cave;
+use generator::generate_level1;
 use tile::TileType;
 
-/// Width of a generated level in tiles.
-pub const LEVEL_WIDTH: usize = 32;
-/// Height of a generated level in tiles.
-pub const LEVEL_HEIGHT: usize = 32;
+/// Width of the generated level in tiles.
+pub const LEVEL_WIDTH: usize = 64;
+/// Height of the generated level in tiles.
+pub const LEVEL_HEIGHT: usize = 64;
 /// Size of one tile in world units. Must match `GRID_SIZE` in main.rs.
 pub const TILE_SIZE: f32 = 8.0;
 
@@ -25,36 +26,39 @@ pub const TILE_SIZE: f32 = 8.0;
 // ---------------------------------------------------------------------------
 
 /// World-space position where the player should spawn for the current level.
-///
-/// Inserted as a resource by [`spawn_level`] during [`PreStartup`] so that
-/// player spawning systems (which run in [`Startup`]) can read it.
 #[derive(Resource)]
 pub struct PlayerSpawnPoint(pub Vec2);
 
 /// World-space position where the campfire should spawn for the current level.
-///
-/// Always a floor tile at the far end of the cave from the player start,
-/// making it a natural exploration goal. Inserted in [`PreStartup`].
 #[derive(Resource)]
 pub struct CampfireSpawnPoint(pub Vec2);
 
-/// World-space position where the chest should spawn for the current level.
-///
-/// A random floor tile distinct from the player and campfire spawns. Inserted in [`PreStartup`].
+/// World-space position where the weapon chest (bow + arrows) should spawn.
 #[derive(Resource)]
-pub struct ChestSpawnPoint(pub Vec2);
+pub struct WeaponChestSpawnPoint(pub Vec2);
+
+/// World-space position where the key chest should spawn.
+#[derive(Resource)]
+pub struct KeyChestSpawnPoint(pub Vec2);
+
+/// World-space position and orientation of the locked door entity.
+#[derive(Resource)]
+pub struct LockedDoorSpawnPoint {
+    pub pos: Vec2,
+    pub orientation: DoorOrientation,
+}
 
 /// World-space position where the signpost should spawn for the current level.
-///
-/// A random floor tile distinct from all other spawns. Inserted in [`PreStartup`].
 #[derive(Resource)]
 pub struct SignpostSpawnPoint(pub Vec2);
 
 /// World-space position where the NPC should spawn for the current level.
-///
-/// A random floor tile distinct from all other spawns. Inserted in [`PreStartup`].
 #[derive(Resource)]
 pub struct NpcSpawnPoint(pub Vec2);
+
+/// World-space position where the exit ladder should spawn for the current level.
+#[derive(Resource)]
+pub struct LadderSpawnPoint(pub Vec2);
 
 // ---------------------------------------------------------------------------
 // Walkability grid
@@ -114,7 +118,6 @@ impl LevelTiles {
             (y as f32 - self.height as f32 / 2.0) * TILE_SIZE,
         )
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +144,7 @@ impl Plugin for LevelPlugin {
 /// avoiding per-tile draw calls. Wall tiles also get invisible [`LightOccluder2d`] entities so
 /// they cast shadows when `bevy_light_2d` point lights are present.
 fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    let map = generate_cave(LEVEL_WIDTH, LEVEL_HEIGHT);
+    let map = generate_level1(LEVEL_WIDTH, LEVEL_HEIGHT);
     let mut rng = thread_rng();
 
     let img_w = LEVEL_WIDTH * TILE_SIZE as usize;
@@ -173,21 +176,29 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
                 }
             }
 
-            // Walls get a static rigid body so the player cannot walk through them,
-            // plus a shadow caster so point lights cast shadows.
+            // Walls get a static rigid body so the player cannot walk through them.
+            // Only walls adjacent to at least one floor tile get a LightOccluder2d —
+            // deep interior walls (surrounded entirely by other walls) are never
+            // reachable by a light ray from the cave floor, so they don't need one.
+            // This keeps the occluder count proportional to cave perimeter rather than
+            // total wall area, which is critical for shadow-rendering performance.
             if tile_type == TileType::Wall {
                 let pos = tile_to_world(x, y, map.width, map.height);
-                commands.spawn((
+                let is_boundary = borders_floor(&map.tiles, map.width, map.height, x, y);
+
+                let mut entity = commands.spawn((
                     Transform::from_xyz(pos.x, pos.y, 0.0),
                     RigidBody::Static,
                     Collider::rectangle(TILE_SIZE, TILE_SIZE),
-                    LightOccluder2d {
+                    Tile,
+                ));
+                if is_boundary {
+                    entity.insert(LightOccluder2d {
                         shape: LightOccluder2dShape::Rectangle {
                             half_size: Vec2::splat(TILE_SIZE / 2.0),
                         },
-                    },
-                    Tile,
-                ));
+                    });
+                }
             }
         }
     }
@@ -212,29 +223,52 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         Transform::from_xyz(-TILE_SIZE / 2.0, -TILE_SIZE / 2.0, -1.0),
     ));
 
-    let (sx, sy) = map.player_start;
-    commands.insert_resource(PlayerSpawnPoint(tile_to_world(sx, sy, map.width, map.height)));
+    // Insert all spawn point resources.
+    let conv = |pos: (usize, usize)| tile_to_world(pos.0, pos.1, map.width, map.height);
 
-    let (cx, cy) = map.campfire_spawn;
-    commands.insert_resource(CampfireSpawnPoint(tile_to_world(cx, cy, map.width, map.height)));
-
-    let (hx, hy) = map.chest_spawn;
-    commands.insert_resource(ChestSpawnPoint(tile_to_world(hx, hy, map.width, map.height)));
-
-    let (px, py) = map.signpost_spawn;
-    commands.insert_resource(SignpostSpawnPoint(tile_to_world(px, py, map.width, map.height)));
-
-    let (nx, ny) = map.npc_spawn;
-    commands.insert_resource(NpcSpawnPoint(tile_to_world(nx, ny, map.width, map.height)));
+    commands.insert_resource(PlayerSpawnPoint(conv(map.player_start)));
+    commands.insert_resource(CampfireSpawnPoint(conv(map.campfire_spawn)));
+    commands.insert_resource(SignpostSpawnPoint(conv(map.signpost_spawn)));
+    commands.insert_resource(NpcSpawnPoint(conv(map.npc_spawn)));
+    commands.insert_resource(WeaponChestSpawnPoint(conv(map.weapon_chest_spawn)));
+    commands.insert_resource(KeyChestSpawnPoint(conv(map.key_chest_spawn)));
+    commands.insert_resource(LockedDoorSpawnPoint {
+        pos: conv(map.locked_door_pos),
+        orientation: map.locked_door_orientation,
+    });
+    commands.insert_resource(LadderSpawnPoint(conv(map.ladder_pos)));
 
     let walkable = map.tiles.iter().map(|t| matches!(t, TileType::Floor)).collect();
     commands.insert_resource(LevelTiles { width: map.width, height: map.height, walkable });
+
+    // Suppress unused variable warning — rng is used only for tile colors.
+    let _ = rng;
+}
+
+/// Returns `true` if the wall tile at `(x, y)` shares an edge or corner with at least one floor tile.
+///
+/// Used to skip spawning [`LightOccluder2d`] on deep interior walls that are
+/// completely surrounded by other walls — no light ray from the cave floor can
+/// ever reach those tiles, so an occluder there would cost GPU time for nothing.
+fn borders_floor(tiles: &[TileType], width: usize, height: usize, x: usize, y: usize) -> bool {
+    for dy in -1i32..=1 {
+        for dx in -1i32..=1 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let nx = x as i32 + dx;
+            let ny = y as i32 + dy;
+            if nx >= 0 && ny >= 0 && (nx as usize) < width && (ny as usize) < height {
+                if matches!(tiles[ny as usize * width + nx as usize], TileType::Floor) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Converts a grid-space tile coordinate to a world-space position (tile center).
-///
-/// Tile centers are always at integer multiples of [`TILE_SIZE`], which keeps them
-/// aligned with the [`GridMoverPlugin`]'s snap grid.
 fn tile_to_world(x: usize, y: usize, width: usize, height: usize) -> Vec2 {
     Vec2::new(
         (x as f32 - width as f32 / 2.0) * TILE_SIZE,
@@ -270,9 +304,9 @@ mod tests {
 
     #[test]
     fn level_tiles_world_to_tile_round_trips() {
-        let tiles = make_tiles(32, 32, true);
-        for x in 0..32usize {
-            for y in 0..32usize {
+        let tiles = make_tiles(64, 64, true);
+        for x in 0..64usize {
+            for y in 0..64usize {
                 let world = tiles.tile_to_world(x, y);
                 let back = tiles.world_to_tile(world).expect("in-bounds tile round-trip failed");
                 assert_eq!(back, (x, y), "round-trip mismatch at tile ({x}, {y})");

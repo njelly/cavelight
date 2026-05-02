@@ -24,20 +24,22 @@ cavelight/
 │   ├── main.rs                     # Entry point; app setup and plugin registration. Spawns player with PlayerLantern child light.
 │   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera with Light2d ambient lighting.
 │   ├── campfire.rs                 # CampfirePlugin — campfire sprite+animation at CampfireSpawnPoint; CampfireFlicker drives flickering PointLight2d child.
-│   ├── chest.rs                    # ChestPlugin — chest at ChestSpawnPoint with Inventory (8 arrows + bow); observer opens inventory UI on interaction.
-│   ├── dialogue.rs                 # DialoguePlugin — RON-driven dialogue system. DialogueSource component, DialogueLibrary resource, bottom-of-screen panel UI, Space-to-advance page model.
+│   ├── chest.rs                    # ChestPlugin — two chests: WeaponChest (bow+arrows) at WeaponChestSpawnPoint, KeyChest (key) at KeyChestSpawnPoint. Shared observer opens inventory UI on interaction.
+│   ├── dialogue.rs                 # DialoguePlugin — RON-driven dialogue system. DialogueSource component, DialogueLibrary resource, bottom-of-screen panel UI, Space-to-advance page model. ActiveDialogue::open() for runtime dialogue without a DialogueSource.
+│   ├── door.rs                     # DoorPlugin — LockedDoor entity at LockedDoorSpawnPoint. Interaction checks player inventory for a key: consumes it and opens the door, or shows a "locked" dialogue if no key found.
 │   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
 │   ├── interaction.rs              # InteractionPlugin — Interactable marker, InteractEvent trigger, InteractionSet system set. Space press fires InteractEvent; gated on InputMode::Playing.
 │   ├── interaction_reticle.rs      # InteractionReticlePlugin — tile-highlight square that shows the player's facing tile. Space fades it in; it fades out 1s after last press. Orbits to new facing on direction change.
 │   ├── inventory.rs                # InventoryPlugin — dual-panel (Chest/Player) 4x4 inventory UI + hotbar. InputMode (Playing/Inventory/Dialogue) gates player input. HeldItem + slot-swap drag model. ActiveChest tracks open chest.
 │   ├── item.rs                     # ItemPlugin — ItemDef/ItemDefList (RON asset), ItemStack, Inventory component, ItemLibrary resource. Loads item_definitions.ron and pre-loads icon handles.
-│   ├── npc.rs                      # NpcPlugin — female NPC at NpcSpawnPoint; Wander component drives random direction changes on a timer via GridMover.
+│   ├── ladder.rs                   # LadderPlugin — solid inert ladder sprite at LadderSpawnPoint (atlas frame 15, "ladder_down"). No interaction yet; floor-transition logic is a future feature.
+│   ├── npc.rs                      # NpcPlugin — female NPC at NpcSpawnPoint; A*-planned Wander picks random destinations within a radius, follows path via GridMover, replans around dynamic obstacles.
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, Facing component, sprite flipping. PlayerControlled + PlayerInput + Facing; bridges to GridMover. Gated on InputMode::Playing.
 │   ├── signpost.rs                 # SignpostPlugin — static Interactable signpost at SignpostSpawnPoint; RigidBody + Collider; DialogueSource wired to "signpost_welcome" dialogue.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
-│   └── level/                      # LevelPlugin — procedural cave generation and tile spawning.
-│       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint, CampfireSpawnPoint, ChestSpawnPoint, SignpostSpawnPoint, and NpcSpawnPoint.
-│       ├── generator.rs            # Cellular automata cave generation; flood-fill connectivity; player_start (center), campfire_spawn (farthest), and random floor spawns for chest/signpost/npc.
+│   └── level/                      # LevelPlugin — graph-based procedural cave generation and tile spawning.
+│       ├── mod.rs                  # LevelPlugin (64×64 map); single-texture tilemap; wall LightOccluder2d entities; exports all spawn point resources and DoorOrientation.
+│       ├── generator.rs            # generate_level1(): places 4 rooms (Start, WeaponChest, KeyChest, End) in fixed zones with ±jitter, carves L-shaped corridors, applies CA smoothing, enforces 1-tile door bottleneck, flood-fills for connectivity.
 │       └── tile.rs                 # TileType enum (Wall/Floor) with per-type render colors. Tile marker component.
 ├── Cargo.toml
 ├── Cargo.lock
