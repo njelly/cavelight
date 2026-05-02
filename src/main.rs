@@ -8,6 +8,7 @@ mod grid_mover;
 mod interaction;
 mod interaction_reticle;
 mod inventory;
+mod item;
 mod level;
 mod player_input;
 mod sprite_animation;
@@ -25,6 +26,7 @@ use grid_mover::{GridMover, GridMoverPlugin};
 use interaction::InteractionPlugin;
 use interaction_reticle::InteractionReticlePlugin;
 use inventory::InventoryPlugin;
+use item::{Inventory, ItemPlugin, ItemStack};
 use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
@@ -90,6 +92,7 @@ fn main() {
                 GridMoverPlugin,
                 InteractionPlugin,
                 InventoryPlugin,
+                ItemPlugin,
                 PlayerInputPlugin,
                 SpriteAnimationPlugin,
                 InteractionReticlePlugin,
@@ -123,9 +126,9 @@ fn toggle_physics_debug(
     }
 }
 
-/// Spawns the player entity at the position determined by the level generator.
+/// Spawns the player entity with a lantern child light and a starting inventory.
 ///
-/// The player carries a [`PlayerLantern`] as a child entity so the light follows
+/// The player begins with a dagger in inventory slot 0. The lantern follows
 /// movement automatically via transform propagation.
 fn spawn_player(
     mut commands: Commands,
@@ -136,6 +139,10 @@ fn spawn_player(
     // 512x512 atlas divided into 8x8 tiles = 64 columns, 64 rows
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let layout_handle = layouts.add(layout);
+
+    let mut inventory = Inventory::new(16);
+    inventory.put(0, Some(ItemStack::new("dagger", 1))).ok();
+
     commands
         .spawn((
             Sprite::from_atlas_image(
@@ -151,6 +158,7 @@ fn spawn_player(
             PlayerControlled,
             PlayerInput::default(),
             Facing::default(),
+            inventory,
         ))
         .with_children(|parent| {
             // Lantern light carried by the player as a child entity so it follows movement.
