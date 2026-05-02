@@ -1,182 +1,9 @@
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::collections::{BinaryHeap, HashMap};
 
-use avian2d::prelude::*;
-use bevy::prelude::*;
-use rand::{Rng, thread_rng};
+use rand::Rng;
 
-use crate::grid_mover::{GridMover, GridMoverSet, snap_to_grid};
 use crate::level::LevelTiles;
-
-// ---------------------------------------------------------------------------
-// Components
-// ---------------------------------------------------------------------------
-
-/// Drives A*-planned wander behaviour for any entity with a [`GridMover`].
-///
-/// On each timer tick the entity picks a random walkable tile within `radius`
-/// tiles (Euclidean distance), runs A* to that tile, truncates the resulting path to
-/// at most `max_path_steps` steps, and follows it one grid step per frame.
-///
-/// Truncating by path length — rather than destination distance — ensures the entity
-/// will not route a long way around a wall simply because the goal tile is
-/// geographically close.
-///
-/// Attach alongside [`GridMover`] on any entity that should roam autonomously.
-#[derive(Component, Reflect)]
-#[reflect(Component)]
-pub struct Wander {
-    /// Controls how often a new destination is chosen.
-    pub timer: Timer,
-    /// World-space waypoints for the current path (front = next step).
-    #[reflect(ignore)]
-    pub path: VecDeque<Vec2>,
-    /// Tile-space goal of the current path, if any.
-    pub destination: Option<(usize, usize)>,
-    /// Tile radius (Euclidean) within which candidate destinations are chosen.
-    pub radius: usize,
-    /// Maximum A* path steps to follow before stopping — prevents routing far around walls.
-    pub max_path_steps: usize,
-}
-
-impl Wander {
-    /// Creates a new `Wander` with the given re-path interval, destination radius, and step limit.
-    pub fn new(interval_secs: f32, radius: usize, max_path_steps: usize) -> Self {
-        Self {
-            timer: Timer::from_seconds(interval_secs, TimerMode::Repeating),
-            path: VecDeque::new(),
-            destination: None,
-            radius,
-            max_path_steps,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Plugin
-// ---------------------------------------------------------------------------
-
-/// Registers the [`Wander`] component type and the [`update_wander`] system.
-///
-/// Any entity with [`Wander`] + [`GridMover`] + [`Sprite`] + [`Transform`]
-/// will be driven by this plugin. No per-entity-type subclassing needed.
-pub struct WanderPlugin;
-
-impl Plugin for WanderPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_type::<Wander>()
-            .add_systems(Update, update_wander.before(GridMoverSet));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Update system
-// ---------------------------------------------------------------------------
-
-/// Ticks the wander timer, advances path waypoints, and steers entities via [`GridMover`].
-///
-/// Each frame:
-/// 1. Pop waypoints that the entity has already reached (within 0.5 units).
-/// 2. On timer fire (or empty path), pick a new destination tile within
-///    `wander.radius` tiles and plan an A* path. The path is truncated to
-///    `wander.max_path_steps` steps so the entity will not circuit far around walls.
-/// 3. If the next planned step is dynamically blocked (e.g. by the player), replan
-///    with that tile marked as an extra obstacle.
-/// 4. Set `GridMover::direction` toward the next waypoint.
-/// 5. Flip the sprite to match horizontal movement direction.
-///
-/// Runs before [`GridMoverSet`] so the direction is consumed in the same frame.
-fn update_wander(
-    time: Res<Time>,
-    level: Option<Res<LevelTiles>>,
-    spatial_query: SpatialQuery,
-    mut query: Query<(&mut Wander, &mut GridMover, &mut Sprite, &Transform)>,
-) {
-    let Some(level) = level else { return };
-    let mut rng = thread_rng();
-
-    for (mut wander, mut mover, mut sprite, transform) in &mut query {
-        wander.timer.tick(time.delta());
-
-        let world_pos = transform.translation.truncate();
-        let snapped = snap_to_grid(world_pos, mover.grid_size);
-
-        // Pop waypoints that have been reached.
-        while let Some(&next) = wander.path.front() {
-            if (snapped - next).length_squared() < 0.5 * 0.5 {
-                wander.path.pop_front();
-            } else {
-                break;
-            }
-        }
-
-        let needs_new_path = wander.path.is_empty() || wander.timer.just_finished();
-
-        if needs_new_path {
-            wander.path.clear();
-            wander.destination = None;
-
-            if let Some(start_tile) = level.world_to_tile(world_pos) {
-                let radius = wander.radius;
-                let max_steps = wander.max_path_steps;
-                if let Some(dest) = pick_wander_destination(&level, start_tile, radius, &mut rng) {
-                    if let Some(tile_path) = astar(&level, start_tile, dest, &[]) {
-                        for tile in tile_path.into_iter().take(max_steps) {
-                            wander.path.push_back(level.tile_to_world(tile.0, tile.1));
-                        }
-                        wander.destination = Some(dest);
-                    }
-                }
-            }
-        }
-
-        // Check if the next planned step is dynamically blocked (e.g. player is there).
-        if let Some(&next_wp) = wander.path.front() {
-            let filter = SpatialQueryFilter::default();
-            let occupied = !spatial_query.point_intersections(next_wp, &filter).is_empty();
-
-            if occupied {
-                // Replan, treating the blocked tile as an extra obstacle.
-                if let (Some(start_tile), Some(blocked_tile)) = (
-                    level.world_to_tile(world_pos),
-                    level.world_to_tile(next_wp),
-                ) {
-                    let max_steps = wander.max_path_steps;
-                    let dest = wander.destination;
-                    wander.path.clear();
-                    if let Some(dest) = dest {
-                        if let Some(tile_path) = astar(&level, start_tile, dest, &[blocked_tile]) {
-                            for tile in tile_path.into_iter().take(max_steps) {
-                                wander.path.push_back(level.tile_to_world(tile.0, tile.1));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Drive GridMover toward the next waypoint.
-        let direction = wander.path.front().map(|&next| {
-            let delta = next - snapped;
-            if delta.x.abs() >= delta.y.abs() {
-                if delta.x > 0.0 { IVec2::X } else { IVec2::NEG_X }
-            } else if delta.y > 0.0 {
-                IVec2::Y
-            } else {
-                IVec2::NEG_Y
-            }
-        });
-
-        // Flip sprite to match actual horizontal movement direction.
-        match direction {
-            Some(d) if d == IVec2::NEG_X => sprite.flip_x = true,
-            Some(d) if d == IVec2::X => sprite.flip_x = false,
-            _ => {}
-        }
-
-        mover.direction = direction;
-    }
-}
 
 // ---------------------------------------------------------------------------
 // A* pathfinder
@@ -279,7 +106,7 @@ pub fn cardinal_neighbors(tile: (usize, usize), width: usize, height: usize) -> 
 /// Picks a random walkable tile within `radius` tiles (Euclidean, in tile-space) of `origin`.
 ///
 /// Returns `None` only in the degenerate case where no walkable tiles exist in the radius.
-fn pick_wander_destination(
+pub fn pick_random_walkable_in_radius(
     level: &LevelTiles,
     origin: (usize, usize),
     radius: usize,
@@ -320,16 +147,6 @@ mod tests {
 
     fn open_level() -> LevelTiles {
         make_level(10, 10, true)
-    }
-
-    #[test]
-    fn wander_new_starts_idle() {
-        let w = Wander::new(1.0, 6, 10);
-        assert!(w.path.is_empty());
-        assert!(w.destination.is_none());
-        assert_eq!(w.timer.duration().as_secs_f32(), 1.0);
-        assert_eq!(w.radius, 6);
-        assert_eq!(w.max_path_steps, 10);
     }
 
     #[test]
@@ -381,14 +198,14 @@ mod tests {
     }
 
     #[test]
-    fn pick_wander_destination_stays_in_radius() {
+    fn pick_random_walkable_in_radius_stays_in_radius() {
         let level = open_level();
         let origin = (5, 5);
         let radius = 3;
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 
         for _ in 0..50 {
-            let dest = pick_wander_destination(&level, origin, radius, &mut rng)
+            let dest = pick_random_walkable_in_radius(&level, origin, radius, &mut rng)
                 .expect("open level should always have candidates");
             let dx = dest.0 as i32 - origin.0 as i32;
             let dy = dest.1 as i32 - origin.1 as i32;

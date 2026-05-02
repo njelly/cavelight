@@ -1,10 +1,10 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use crate::goap::GoapAgent;
 use crate::grid_mover::GridMover;
 use crate::level::NpcSpawnPoint;
 use crate::sprite_animation::SpriteAnimation;
-use crate::wander::Wander;
 use crate::GRID_SIZE;
 
 // ---------------------------------------------------------------------------
@@ -22,8 +22,8 @@ pub struct Npc;
 
 /// Spawns the NPC and registers its type.
 ///
-/// Movement and pathfinding are driven by [`WanderPlugin`](crate::wander::WanderPlugin)
-/// via the [`Wander`] component, which is generic across all wandering entity types.
+/// Movement and pathfinding are driven by [`GoapPlugin`](crate::goap::GoapPlugin)
+/// via the [`GoapAgent`] component with the [`Goal::Wander`] goal.
 pub struct NpcPlugin;
 
 impl Plugin for NpcPlugin {
@@ -37,7 +37,7 @@ impl Plugin for NpcPlugin {
 // Startup
 // ---------------------------------------------------------------------------
 
-/// Spawns the female NPC at [`NpcSpawnPoint`] with a wander controller and a grid mover.
+/// Spawns the female NPC at [`NpcSpawnPoint`] with a GOAP wander agent and a grid mover.
 ///
 /// A kinematic rigid body and collider make the NPC solid so the player and other
 /// entities cannot walk through her, and so she registers in [`GridMover`]'s spatial
@@ -65,6 +65,6 @@ fn spawn_npc(
         GridMover::new(GRID_SIZE),
         RigidBody::Kinematic,
         Collider::rectangle(GRID_SIZE, GRID_SIZE),
-        Wander::new(1.2, 6, 10),
+        GoapAgent::wander(6, 10, 1.0, 3.0),
     ));
 }

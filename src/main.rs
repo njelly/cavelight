@@ -6,6 +6,7 @@ mod chest;
 mod dialogue;
 mod door;
 mod fps_counter;
+mod goap;
 mod grid_mover;
 mod interaction;
 mod interaction_reticle;
@@ -42,10 +43,10 @@ use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
 use npc::NpcPlugin;
 use signpost::SignpostPlugin;
+use goap::GoapPlugin;
 use skeleton::SkeletonPlugin;
 use spawner::SpawnerPlugin;
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
-use wander::WanderPlugin;
 
 // One grid cell = 8x8 pixels
 pub const GRID_SIZE: f32 = 8.0;
@@ -111,6 +112,7 @@ fn main() {
                 InteractionPlugin,
             ),
             (
+                GoapPlugin,
                 InventoryPlugin,
                 ItemPlugin,
                 LadderPlugin,
@@ -121,7 +123,6 @@ fn main() {
                 SpawnerPlugin,
                 SpriteAnimationPlugin,
                 InteractionReticlePlugin,
-                WanderPlugin,
             ),
         ))
         .register_type::<PlayerLantern>()
