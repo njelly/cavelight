@@ -11,6 +11,7 @@ mod interaction_reticle;
 mod inventory;
 mod item;
 mod level;
+mod npc;
 mod player_input;
 mod signpost;
 mod sprite_animation;
@@ -32,6 +33,7 @@ use inventory::InventoryPlugin;
 use item::{Inventory, ItemPlugin, ItemStack};
 use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
+use npc::NpcPlugin;
 use signpost::SignpostPlugin;
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 
@@ -98,6 +100,7 @@ fn main() {
                 InteractionPlugin,
                 InventoryPlugin,
                 ItemPlugin,
+                NpcPlugin,
                 PlayerInputPlugin,
                 SignpostPlugin,
                 SpriteAnimationPlugin,
@@ -161,6 +164,8 @@ fn spawn_player(
             Transform::from_xyz(spawn_point.0.x, spawn_point.0.y, 0.0),
             SpriteAnimation::with_name("player_idle", true),
             GridMover::new(GRID_SIZE),
+            RigidBody::Kinematic,
+            Collider::rectangle(GRID_SIZE, GRID_SIZE),
             PlayerControlled,
             PlayerInput::default(),
             Facing::default(),

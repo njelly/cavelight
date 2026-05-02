@@ -115,8 +115,8 @@ fn move_grid_movers(
     }
 }
 
-/// Snaps a world position to the nearest grid cell.
-fn snap_to_grid(pos: Vec2, grid_size: f32) -> Vec2 {
+/// Snaps a world position to the nearest grid cell center.
+pub fn snap_to_grid(pos: Vec2, grid_size: f32) -> Vec2 {
     (pos / grid_size).round() * grid_size
 }
 

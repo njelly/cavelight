@@ -31,12 +31,13 @@ cavelight/
 │   ├── interaction_reticle.rs      # InteractionReticlePlugin — tile-highlight square that shows the player's facing tile. Space fades it in; it fades out 1s after last press. Orbits to new facing on direction change.
 │   ├── inventory.rs                # InventoryPlugin — dual-panel (Chest/Player) 4x4 inventory UI + hotbar. InputMode (Playing/Inventory/Dialogue) gates player input. HeldItem + slot-swap drag model. ActiveChest tracks open chest.
 │   ├── item.rs                     # ItemPlugin — ItemDef/ItemDefList (RON asset), ItemStack, Inventory component, ItemLibrary resource. Loads item_definitions.ron and pre-loads icon handles.
+│   ├── npc.rs                      # NpcPlugin — female NPC at NpcSpawnPoint; Wander component drives random direction changes on a timer via GridMover.
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, Facing component, sprite flipping. PlayerControlled + PlayerInput + Facing; bridges to GridMover. Gated on InputMode::Playing.
 │   ├── signpost.rs                 # SignpostPlugin — static Interactable signpost at SignpostSpawnPoint; RigidBody + Collider; DialogueSource wired to "signpost_welcome" dialogue.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 │   └── level/                      # LevelPlugin — procedural cave generation and tile spawning.
-│       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint, CampfireSpawnPoint, ChestSpawnPoint, and SignpostSpawnPoint.
-│       ├── generator.rs            # Cellular automata cave generation; flood-fill connectivity; player_start (center) and campfire_spawn (farthest floor tile).
+│       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint, CampfireSpawnPoint, ChestSpawnPoint, SignpostSpawnPoint, and NpcSpawnPoint.
+│       ├── generator.rs            # Cellular automata cave generation; flood-fill connectivity; player_start (center), campfire_spawn (farthest), and random floor spawns for chest/signpost/npc.
 │       └── tile.rs                 # TileType enum (Wall/Floor) with per-type render colors. Tile marker component.
 ├── Cargo.toml
 ├── Cargo.lock

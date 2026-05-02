@@ -20,6 +20,8 @@ pub struct MapData {
     pub chest_spawn: (usize, usize),
     /// Grid-space coordinate for the signpost spawn — a random floor tile distinct from all other spawns.
     pub signpost_spawn: (usize, usize),
+    /// Grid-space coordinate for the NPC spawn — a random floor tile distinct from all other spawns.
+    pub npc_spawn: (usize, usize),
 }
 
 impl MapData {
@@ -57,8 +59,14 @@ pub fn generate_cave(width: usize, height: usize) -> MapData {
         &[player_start, campfire_spawn, chest_spawn],
         &mut rng,
     );
+    let npc_spawn = pick_random_floor(
+        &tiles,
+        width,
+        &[player_start, campfire_spawn, chest_spawn, signpost_spawn],
+        &mut rng,
+    );
 
-    MapData { width, height, tiles, player_start, campfire_spawn, chest_spawn, signpost_spawn }
+    MapData { width, height, tiles, player_start, campfire_spawn, chest_spawn, signpost_spawn, npc_spawn }
 }
 
 /// Fills the map randomly with ~45% walls. Border tiles are always walls.
