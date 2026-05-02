@@ -59,8 +59,7 @@ fn spawn_skeletons(
     let pulse_layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let pulse_layout_handle = layouts.add(pulse_layout);
 
-    let mut mover = GridMover::new(GRID_SIZE);
-    mover.speed = 16.0;
+    let mover = GridMover::new(GRID_SIZE).with_walk_speed(10.0);
 
     commands.spawn((
         Skeleton,
