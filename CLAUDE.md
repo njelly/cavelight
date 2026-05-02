@@ -17,6 +17,7 @@ cavelight/
 │   ├── atlas_8x8.png               # 512x512 sprite atlas of 8x8 sprites for characters and dynamic objects.
 │   ├── sprite_animations.ron       # Animation library: maps animation names to frame index lists and fps.
 │   ├── item_definitions.ron        # Item definitions: id, display_name, icon_path, max_stack per item type.
+│   ├── dialogues.ron               # Dialogue definitions: id and ordered pages array per dialogue entry.
 │   ├── item_icons/                 # PNG icons for item types (Dagger_01.png, Arrow_01.png, Bow_01.png).
 │   └── fonts/                      # RobotoMono font family (all weights/styles)
 ├── src/
@@ -24,13 +25,14 @@ cavelight/
 │   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera with Light2d ambient lighting.
 │   ├── campfire.rs                 # CampfirePlugin — campfire sprite+animation at CampfireSpawnPoint; CampfireFlicker drives flickering PointLight2d child.
 │   ├── chest.rs                    # ChestPlugin — chest at ChestSpawnPoint with Inventory (8 arrows + bow); observer opens inventory UI on interaction.
+│   ├── dialogue.rs                 # DialoguePlugin — RON-driven dialogue system. DialogueSource component, DialogueLibrary resource, bottom-of-screen panel UI, Space-to-advance page model.
 │   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
 │   ├── interaction.rs              # InteractionPlugin — Interactable marker, InteractEvent trigger, InteractionSet system set. Space press fires InteractEvent; gated on InputMode::Playing.
 │   ├── interaction_reticle.rs      # InteractionReticlePlugin — tile-highlight square that shows the player's facing tile. Space fades it in; it fades out 1s after last press. Orbits to new facing on direction change.
-│   ├── inventory.rs                # InventoryPlugin — dual-panel (Chest/Player) 4x4 inventory UI + hotbar. InputMode resource gates player input. HeldItem + slot-swap drag model. ActiveChest tracks open chest.
+│   ├── inventory.rs                # InventoryPlugin — dual-panel (Chest/Player) 4x4 inventory UI + hotbar. InputMode (Playing/Inventory/Dialogue) gates player input. HeldItem + slot-swap drag model. ActiveChest tracks open chest.
 │   ├── item.rs                     # ItemPlugin — ItemDef/ItemDefList (RON asset), ItemStack, Inventory component, ItemLibrary resource. Loads item_definitions.ron and pre-loads icon handles.
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, Facing component, sprite flipping. PlayerControlled + PlayerInput + Facing; bridges to GridMover. Gated on InputMode::Playing.
-│   ├── signpost.rs                 # SignpostPlugin — static Interactable signpost at SignpostSpawnPoint; RigidBody + Collider; ready for dialogue system.
+│   ├── signpost.rs                 # SignpostPlugin — static Interactable signpost at SignpostSpawnPoint; RigidBody + Collider; DialogueSource wired to "signpost_welcome" dialogue.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 │   └── level/                      # LevelPlugin — procedural cave generation and tile spawning.
 │       ├── mod.rs                  # LevelPlugin; single-texture tilemap; wall LightOccluder2d entities; exports PlayerSpawnPoint, CampfireSpawnPoint, ChestSpawnPoint, and SignpostSpawnPoint.
