@@ -62,8 +62,10 @@ pub struct MapData {
     pub locked_door_pos: (usize, usize),
     /// Whether the locked-door corridor runs N-S or E-W.
     pub locked_door_orientation: DoorOrientation,
-    /// Tile-space ladder spawn — inside the end room.
+    /// Tile-space ladder_down spawn — inside the end room (leads to the next level).
     pub ladder_pos: (usize, usize),
+    /// Tile-space ladder_up spawn — inside the start room (leads back to the surface).
+    pub ladder_up_pos: (usize, usize),
     /// Tile-space spawner position — inside the key chest room.
     pub spawner_pos: (usize, usize),
 }
@@ -201,6 +203,11 @@ pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
         &[player_start, campfire_spawn, signpost_spawn],
         &mut rng,
     );
+    let ladder_up_pos = random_floor_in_room(
+        &tiles, width, &start_room,
+        &[player_start, campfire_spawn, signpost_spawn, npc_spawn],
+        &mut rng,
+    );
     let weapon_chest_spawn =
         random_floor_in_room(&tiles, width, &weapon_room, &[], &mut rng);
     let key_chest_spawn =
@@ -218,6 +225,7 @@ pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
         campfire_spawn,
         signpost_spawn,
         npc_spawn,
+        ladder_up_pos,
         weapon_chest_spawn,
         key_chest_spawn,
         spawner_pos,
