@@ -11,6 +11,7 @@ mod inventory;
 mod item;
 mod level;
 mod player_input;
+mod signpost;
 mod sprite_animation;
 
 use bevy::prelude::*;
@@ -29,6 +30,7 @@ use inventory::InventoryPlugin;
 use item::{Inventory, ItemPlugin, ItemStack};
 use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
+use signpost::SignpostPlugin;
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 
 // One grid cell = 8x8 pixels
@@ -94,6 +96,7 @@ fn main() {
                 InventoryPlugin,
                 ItemPlugin,
                 PlayerInputPlugin,
+                SignpostPlugin,
                 SpriteAnimationPlugin,
                 InteractionReticlePlugin,
             ),
