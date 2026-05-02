@@ -4,23 +4,28 @@
         display_name: "Dagger",
         icon_path: "item_icons/Dagger_01.png",
         max_stack: 1,
+        equippable: true,
     ),
     (
         id: "arrow",
         display_name: "Arrow",
         icon_path: "item_icons/Arrow_01.png",
         max_stack: 64,
+        equippable: false,
     ),
     (
         id: "bow",
         display_name: "Bow",
         icon_path: "item_icons/Bow_01.png",
         max_stack: 1,
+        equippable: true,
+        ammo_id: Some("arrow"),
     ),
     (
         id: "key",
         display_name: "Key",
         icon_path: "item_icons/Key.png",
         max_stack: 1,
+        equippable: true,
     ),
 ]

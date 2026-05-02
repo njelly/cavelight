@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 // Item definitions (loaded from RON)
 // ---------------------------------------------------------------------------
 
+fn default_true() -> bool { true }
+
 /// Static properties of an item type, loaded from `inventory_items.items.ron`.
 ///
 /// [`ItemDef`]s are read-only and shared across all instances. Active items in
@@ -22,6 +24,14 @@ pub struct ItemDef {
     pub icon_path: String,
     /// Maximum items per inventory slot. `1` = non-stackable (weapons, bows, etc.).
     pub max_stack: u32,
+    /// Whether this item can be placed in a hotbar slot and equipped. Consumables
+    /// like arrows are `false` — they are ammunition, not equippable weapons.
+    #[serde(default = "default_true")]
+    pub equippable: bool,
+    /// Id of the ammo [`ItemDef`] required by this item (e.g. `"arrow"` for a bow).
+    /// `None` means the item needs no ammo.
+    #[serde(default)]
+    pub ammo_id: Option<String>,
 }
 
 /// Raw list of [`ItemDef`]s deserialized directly from `inventory_items.items.ron`.
@@ -42,20 +52,23 @@ struct ItemDefListHandle(Handle<ItemDefList>);
 
 /// Runtime item registry built from [`ItemDefList`] after the RON asset loads.
 ///
-/// Provides O(1) lookup of pre-loaded icon [`Handle<Image>`]s by item id.
-/// Available as a [`Resource`] once [`ItemPlugin`] finishes initialisation.
-///
-/// Item definition lookup (names, max stack, etc.) will be added here when
-/// tooltip or loot-generation systems require it.
+/// Provides O(1) lookup of pre-loaded icon [`Handle<Image>`]s and full [`ItemDef`]s
+/// by item id. Available as a [`Resource`] once [`ItemPlugin`] finishes initialisation.
 #[derive(Resource)]
 pub struct ItemLibrary {
     icons: HashMap<String, Handle<Image>>,
+    pub defs: HashMap<String, ItemDef>,
 }
 
 impl ItemLibrary {
     /// Returns the pre-loaded icon handle for `id`, or `None` if unknown.
     pub fn icon(&self, id: &str) -> Option<&Handle<Image>> {
         self.icons.get(id)
+    }
+
+    /// Returns the [`ItemDef`] for `id`, or `None` if unknown.
+    pub fn def(&self, id: &str) -> Option<&ItemDef> {
+        self.defs.get(id)
     }
 }
 
@@ -189,10 +202,12 @@ fn build_item_library(
     let Some(list) = list_assets.get(&handle.0) else { return };
 
     let mut icons = HashMap::new();
+    let mut defs = HashMap::new();
     for def in &list.0 {
         icons.insert(def.id.clone(), asset_server.load::<Image>(&def.icon_path));
+        defs.insert(def.id.clone(), def.clone());
     }
-    commands.insert_resource(ItemLibrary { icons });
+    commands.insert_resource(ItemLibrary { icons, defs });
 }
 
 // ---------------------------------------------------------------------------
