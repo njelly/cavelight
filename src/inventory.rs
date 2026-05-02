@@ -121,6 +121,13 @@ pub struct InventorySlotRef {
 #[derive(Component)]
 struct SlotIcon;
 
+/// Marker for the stack-count [`Text`] overlay in the bottom-right of an inventory slot.
+///
+/// Visible only when the slot holds a stackable item (`max_stack > 1`) with `count > 0`.
+/// Carries [`InventorySlotRef`] so [`sync_stack_counts`] can map it to the correct stack.
+#[derive(Component)]
+struct StackCount;
+
 /// Marker for the `X` close button in the inventory header.
 #[derive(Component)]
 struct CloseInventoryButton;
@@ -166,6 +173,7 @@ impl Plugin for InventoryPlugin {
                     sync_chest_panel_visibility,
                     select_hotbar_slot,
                     sync_hotbar_borders,
+                    sync_stack_counts,
                 ),
             );
     }
@@ -183,7 +191,8 @@ impl Plugin for InventoryPlugin {
 ///
 /// All child spawning is done through `with_children` closures so that `Commands`
 /// is never borrowed twice simultaneously.
-fn spawn_inventory_ui(mut commands: Commands) {
+fn spawn_inventory_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let count_font: Handle<Font> = asset_server.load("fonts/RobotoMono-Bold.ttf");
     let slot_bg = Color::srgb(0.08, 0.07, 0.06);
     let slot_border = Color::srgb(0.32, 0.27, 0.22);
     let panel_bg = Color::srgba(0.06, 0.05, 0.04, 0.92);
@@ -338,6 +347,24 @@ fn spawn_inventory_ui(mut commands: Commands) {
                                                                     SlotIcon,
                                                                     slot_ref,
                                                                 ));
+                                                                slot.spawn((
+                                                                    Text::new(""),
+                                                                    TextFont {
+                                                                        font: count_font.clone(),
+                                                                        font_size: 8.0,
+                                                                        ..default()
+                                                                    },
+                                                                    TextColor(Color::WHITE),
+                                                                    Node {
+                                                                        position_type: PositionType::Absolute,
+                                                                        bottom: Val::Px(1.0),
+                                                                        right: Val::Px(1.0),
+                                                                        ..default()
+                                                                    },
+                                                                    Visibility::Hidden,
+                                                                    StackCount,
+                                                                    slot_ref,
+                                                                ));
                                                             });
                                                     }
                                                 });
@@ -409,6 +436,24 @@ fn spawn_inventory_ui(mut commands: Commands) {
                                                                     SlotIcon,
                                                                     slot_ref,
                                                                 ));
+                                                                slot.spawn((
+                                                                    Text::new(""),
+                                                                    TextFont {
+                                                                        font: count_font.clone(),
+                                                                        font_size: 8.0,
+                                                                        ..default()
+                                                                    },
+                                                                    TextColor(Color::WHITE),
+                                                                    Node {
+                                                                        position_type: PositionType::Absolute,
+                                                                        bottom: Val::Px(1.0),
+                                                                        right: Val::Px(1.0),
+                                                                        ..default()
+                                                                    },
+                                                                    Visibility::Hidden,
+                                                                    StackCount,
+                                                                    slot_ref,
+                                                                ));
                                                             });
                                                     }
                                                 });
@@ -442,7 +487,8 @@ fn spawn_inventory_ui(mut commands: Commands) {
 /// Each slot is a full inventory slot (player inventory indices [`HOTBAR_START`]..):
 /// it carries [`InventorySlotRef`], [`Interaction`] for drag-drop, and a [`SlotIcon`]
 /// child so the existing icon-sync system displays held items automatically.
-fn spawn_hotbar(mut commands: Commands) {
+fn spawn_hotbar(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let count_font: Handle<Font> = asset_server.load("fonts/RobotoMono-Bold.ttf");
     let slot_bg = Color::srgb(0.08, 0.07, 0.06);
     let slot_border = Color::srgb(0.32, 0.27, 0.22);
     let panel_bg = Color::srgba(0.06, 0.05, 0.04, 0.90);
@@ -501,6 +547,24 @@ fn spawn_hotbar(mut commands: Commands) {
                                 ImageNode::default(),
                                 Visibility::Hidden,
                                 SlotIcon,
+                                slot_ref,
+                            ));
+                            slot.spawn((
+                                Text::new(""),
+                                TextFont {
+                                    font: count_font.clone(),
+                                    font_size: 8.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                                Node {
+                                    position_type: PositionType::Absolute,
+                                    bottom: Val::Px(1.0),
+                                    right: Val::Px(1.0),
+                                    ..default()
+                                },
+                                Visibility::Hidden,
+                                StackCount,
                                 slot_ref,
                             ));
                         });
@@ -781,5 +845,46 @@ fn sync_hotbar_borders(
         } else {
             normal_border
         };
+    }
+}
+
+/// Updates the stack-count text overlay on each inventory slot.
+///
+/// Shows the count in the bottom-right corner only for stackable items
+/// (`max_stack > 1`). Hidden when the slot is empty or holds a non-stackable item.
+fn sync_stack_counts(
+    item_library: Option<Res<ItemLibrary>>,
+    player_inv: Query<&Inventory, (With<PlayerControlled>, Without<Chest>)>,
+    active_chest: Res<ActiveChest>,
+    chest_inv: Query<&Inventory, (With<Chest>, Without<PlayerControlled>)>,
+    mut counts: Query<(&InventorySlotRef, &mut Text, &mut Visibility), With<StackCount>>,
+) {
+    let Some(library) = item_library else { return };
+
+    let player_inventory = player_inv.single().ok();
+    let chest_inventory = active_chest.0.and_then(|e| chest_inv.get(e).ok());
+
+    for (slot_ref, mut text, mut vis) in &mut counts {
+        let inventory = match slot_ref.panel {
+            InventoryPanel::Player => player_inventory,
+            InventoryPanel::Chest => chest_inventory,
+        };
+
+        let count_label = inventory
+            .and_then(|inv| inv.get(slot_ref.index))
+            .and_then(|stack| {
+                let def = library.def(&stack.id)?;
+                if def.max_stack > 1 { Some(stack.count.to_string()) } else { None }
+            });
+
+        match count_label {
+            Some(label) => {
+                **text = label;
+                *vis = Visibility::Inherited;
+            }
+            None => {
+                *vis = Visibility::Hidden;
+            }
+        }
     }
 }
