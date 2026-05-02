@@ -33,13 +33,16 @@ cavelight/
 │   ├── inventory.rs                # InventoryPlugin — dual-panel (Chest/Player) 4x4 inventory UI + hotbar. InputMode (Playing/Inventory/Dialogue) gates player input. HeldItem + slot-swap drag model. ActiveChest tracks open chest.
 │   ├── item.rs                     # ItemPlugin — ItemDef/ItemDefList (RON asset), ItemStack, Inventory component, ItemLibrary resource. Loads item_definitions.ron and pre-loads icon handles.
 │   ├── ladder.rs                   # LadderPlugin — solid inert ladder sprite at LadderSpawnPoint (atlas frame 15, "ladder_down"). No interaction yet; floor-transition logic is a future feature.
-│   ├── npc.rs                      # NpcPlugin — female NPC at NpcSpawnPoint; A*-planned Wander picks random destinations within a radius, follows path via GridMover, replans around dynamic obstacles.
+│   ├── npc.rs                      # NpcPlugin — female NPC at NpcSpawnPoint; uses WanderPlugin for A*-planned movement via GridMover.
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, Facing component, sprite flipping. PlayerControlled + PlayerInput + Facing; bridges to GridMover. Gated on InputMode::Playing.
 │   ├── signpost.rs                 # SignpostPlugin — static Interactable signpost at SignpostSpawnPoint; RigidBody + Collider; DialogueSource wired to "signpost_welcome" dialogue.
+│   ├── skeleton.rs                 # SkeletonPlugin — Skeleton enemy; observer on SpawnRequested spawns skeleton with Wander+GridMover (speed=16) and a PulseFx child for spawn-in effect.
+│   ├── spawner.rs                  # SpawnerPlugin — Spawner component (interval-based, capacity-capped); SpawnRequested trigger; SpawnedBy tag; SpawnerSpin spin-on-spawn effect; PulseFx despawn system.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
+│   ├── wander.rs                   # WanderPlugin — A*-planned wander for any GridMover entity. Wander component (radius, max_path_steps); astar(), cardinal_neighbors(), pick_wander_destination().
 │   └── level/                      # LevelPlugin — graph-based procedural cave generation and tile spawning.
 │       ├── mod.rs                  # LevelPlugin (64×64 map); single-texture tilemap; wall LightOccluder2d entities; exports all spawn point resources and DoorOrientation.
-│       ├── generator.rs            # generate_level1(): places 4 rooms (Start, WeaponChest, KeyChest, End) in fixed zones with ±jitter, carves L-shaped corridors, applies CA smoothing, enforces 1-tile door bottleneck, flood-fills for connectivity.
+│       ├── generator.rs            # generate_level1(): places 4 rooms (Start, WeaponChest, KeyChest, End) in fixed zones with ±jitter, carves L-shaped corridors, applies CA smoothing, enforces 1-tile door bottleneck, flood-fills for connectivity. MapData includes spawner_pos in key room.
 │       └── tile.rs                 # TileType enum (Wall/Floor) with per-type render colors. Tile marker component.
 ├── Cargo.toml
 ├── Cargo.lock

@@ -60,6 +60,10 @@ pub struct NpcSpawnPoint(pub Vec2);
 #[derive(Resource)]
 pub struct LadderSpawnPoint(pub Vec2);
 
+/// World-space position of the enemy spawner entity in the key chest room.
+#[derive(Resource)]
+pub struct SpawnerSpawnPoint(pub Vec2);
+
 // ---------------------------------------------------------------------------
 // Walkability grid
 // ---------------------------------------------------------------------------
@@ -237,6 +241,7 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         orientation: map.locked_door_orientation,
     });
     commands.insert_resource(LadderSpawnPoint(conv(map.ladder_pos)));
+    commands.insert_resource(SpawnerSpawnPoint(conv(map.spawner_pos)));
 
     let walkable = map.tiles.iter().map(|t| matches!(t, TileType::Floor)).collect();
     commands.insert_resource(LevelTiles { width: map.width, height: map.height, walkable });

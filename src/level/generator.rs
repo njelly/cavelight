@@ -65,6 +65,8 @@ pub struct MapData {
     pub locked_door_orientation: DoorOrientation,
     /// Tile-space ladder spawn — inside the end room.
     pub ladder_pos: (usize, usize),
+    /// Tile-space spawner position — inside the key chest room.
+    pub spawner_pos: (usize, usize),
 }
 
 impl MapData {
@@ -210,6 +212,8 @@ pub fn generate_level1(width: usize, height: usize) -> MapData {
         random_floor_in_room(&tiles, width, &weapon_room, &[], &mut rng);
     let key_chest_spawn =
         random_floor_in_room(&tiles, width, &key_room, &[], &mut rng);
+    let spawner_pos =
+        random_floor_in_room(&tiles, width, &key_room, &[key_chest_spawn], &mut rng);
     let ladder_pos =
         random_floor_in_room(&tiles, width, &end_room, &[], &mut rng);
 
@@ -223,6 +227,7 @@ pub fn generate_level1(width: usize, height: usize) -> MapData {
         npc_spawn,
         weapon_chest_spawn,
         key_chest_spawn,
+        spawner_pos,
         locked_door_pos: (door_x, door_y),
         locked_door_orientation: DoorOrientation::NorthSouth,
         ladder_pos,
@@ -504,6 +509,7 @@ mod tests {
             ("npc", map.npc_spawn),
             ("weapon_chest", map.weapon_chest_spawn),
             ("key_chest", map.key_chest_spawn),
+            ("spawner", map.spawner_pos),
             ("ladder", map.ladder_pos),
         ];
         for (name, (x, y)) in spawns {
