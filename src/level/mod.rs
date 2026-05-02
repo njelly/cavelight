@@ -18,7 +18,11 @@ pub const LEVEL_WIDTH: usize = 32;
 /// Height of a generated level in tiles.
 pub const LEVEL_HEIGHT: usize = 32;
 /// Size of one tile in world units. Must match `GRID_SIZE` in main.rs.
-const TILE_SIZE: f32 = 8.0;
+pub const TILE_SIZE: f32 = 8.0;
+
+// ---------------------------------------------------------------------------
+// Spawn point resources (inserted in PreStartup, read in Startup)
+// ---------------------------------------------------------------------------
 
 /// World-space position where the player should spawn for the current level.
 ///
@@ -46,6 +50,77 @@ pub struct ChestSpawnPoint(pub Vec2);
 #[derive(Resource)]
 pub struct SignpostSpawnPoint(pub Vec2);
 
+/// World-space position where the NPC should spawn for the current level.
+///
+/// A random floor tile distinct from all other spawns. Inserted in [`PreStartup`].
+#[derive(Resource)]
+pub struct NpcSpawnPoint(pub Vec2);
+
+// ---------------------------------------------------------------------------
+// Walkability grid
+// ---------------------------------------------------------------------------
+
+/// Read-only walkability representation of the generated level.
+///
+/// Inserted in [`PreStartup`] alongside the spawn point resources. Systems that need
+/// to reason about static passability (e.g. the A\* pathfinder in [`crate::npc`]) read
+/// this resource rather than querying individual tile entities.
+#[derive(Resource)]
+pub struct LevelTiles {
+    pub width: usize,
+    pub height: usize,
+    /// Row-major walkability flags: `true` = passable floor, `false` = wall.
+    walkable: Vec<bool>,
+}
+
+impl LevelTiles {
+    /// Constructs a `LevelTiles` from a raw walkability vector. Available in tests only.
+    #[cfg(test)]
+    pub fn from_walkable(width: usize, height: usize, walkable: Vec<bool>) -> Self {
+        Self { width, height, walkable }
+    }
+
+    /// Marks tile `(x, y)` as a wall. Available in tests only.
+    #[cfg(test)]
+    pub fn set_wall(&mut self, x: usize, y: usize) {
+        self.walkable[y * self.width + x] = false;
+    }
+
+    /// Returns `true` if tile `(x, y)` is passable. Out-of-bounds always returns `false`.
+    pub fn is_walkable(&self, x: usize, y: usize) -> bool {
+        if x >= self.width || y >= self.height {
+            return false;
+        }
+        self.walkable[y * self.width + x]
+    }
+
+    /// Converts a world-space position to tile coordinates.
+    ///
+    /// Returns `None` if the position maps outside the level boundaries.
+    pub fn world_to_tile(&self, pos: Vec2) -> Option<(usize, usize)> {
+        let tx = (pos.x / TILE_SIZE + self.width as f32 / 2.0).round() as i32;
+        let ty = (pos.y / TILE_SIZE + self.height as f32 / 2.0).round() as i32;
+        if tx >= 0 && ty >= 0 && (tx as usize) < self.width && (ty as usize) < self.height {
+            Some((tx as usize, ty as usize))
+        } else {
+            None
+        }
+    }
+
+    /// Converts tile coordinates to the world-space center of that tile.
+    pub fn tile_to_world(&self, x: usize, y: usize) -> Vec2 {
+        Vec2::new(
+            (x as f32 - self.width as f32 / 2.0) * TILE_SIZE,
+            (y as f32 - self.height as f32 / 2.0) * TILE_SIZE,
+        )
+    }
+
+}
+
+// ---------------------------------------------------------------------------
+// Plugin
+// ---------------------------------------------------------------------------
+
 /// Generates and spawns the level tilemap.
 pub struct LevelPlugin;
 
@@ -56,7 +131,11 @@ impl Plugin for LevelPlugin {
     }
 }
 
-/// Generates the cave map, builds a single tilemap texture, and inserts [`PlayerSpawnPoint`].
+// ---------------------------------------------------------------------------
+// Startup system
+// ---------------------------------------------------------------------------
+
+/// Generates the cave map, builds a single tilemap texture, and inserts all level resources.
 ///
 /// The entire floor/wall visual is written into one [`Image`] and rendered as a single sprite,
 /// avoiding per-tile draw calls. Wall tiles also get invisible [`LightOccluder2d`] entities so
@@ -134,28 +213,28 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     ));
 
     let (sx, sy) = map.player_start;
-    let spawn_pos = tile_to_world(sx, sy, map.width, map.height);
-    commands.insert_resource(PlayerSpawnPoint(spawn_pos));
+    commands.insert_resource(PlayerSpawnPoint(tile_to_world(sx, sy, map.width, map.height)));
 
     let (cx, cy) = map.campfire_spawn;
-    let campfire_pos = tile_to_world(cx, cy, map.width, map.height);
-    commands.insert_resource(CampfireSpawnPoint(campfire_pos));
+    commands.insert_resource(CampfireSpawnPoint(tile_to_world(cx, cy, map.width, map.height)));
 
     let (hx, hy) = map.chest_spawn;
-    let chest_pos = tile_to_world(hx, hy, map.width, map.height);
-    commands.insert_resource(ChestSpawnPoint(chest_pos));
+    commands.insert_resource(ChestSpawnPoint(tile_to_world(hx, hy, map.width, map.height)));
 
     let (px, py) = map.signpost_spawn;
-    let signpost_pos = tile_to_world(px, py, map.width, map.height);
-    commands.insert_resource(SignpostSpawnPoint(signpost_pos));
+    commands.insert_resource(SignpostSpawnPoint(tile_to_world(px, py, map.width, map.height)));
+
+    let (nx, ny) = map.npc_spawn;
+    commands.insert_resource(NpcSpawnPoint(tile_to_world(nx, ny, map.width, map.height)));
+
+    let walkable = map.tiles.iter().map(|t| matches!(t, TileType::Floor)).collect();
+    commands.insert_resource(LevelTiles { width: map.width, height: map.height, walkable });
 }
 
 /// Converts a grid-space tile coordinate to a world-space position (tile center).
 ///
 /// Tile centers are always at integer multiples of [`TILE_SIZE`], which keeps them
-/// aligned with the [`GridMoverPlugin`]'s snap grid. For even-width maps the origin
-/// falls on a tile center at the middle-right of the map; the tilemap sprite is
-/// shifted to compensate so the visual result is still centered on screen.
+/// aligned with the [`GridMoverPlugin`]'s snap grid.
 fn tile_to_world(x: usize, y: usize, width: usize, height: usize) -> Vec2 {
     Vec2::new(
         (x as f32 - width as f32 / 2.0) * TILE_SIZE,
@@ -167,10 +246,12 @@ fn tile_to_world(x: usize, y: usize, width: usize, height: usize) -> Vec2 {
 mod tests {
     use super::*;
 
+    fn make_tiles(width: usize, height: usize, all_walkable: bool) -> LevelTiles {
+        LevelTiles { width, height, walkable: vec![all_walkable; width * height] }
+    }
+
     #[test]
     fn tile_to_world_positions_on_grid() {
-        // All tile centers must be exact multiples of TILE_SIZE so they align with
-        // the GridMover snap grid.
         for x in 0..4usize {
             for y in 0..4usize {
                 let pos = tile_to_world(x, y, 4, 4);
@@ -185,5 +266,33 @@ mod tests {
         let a = tile_to_world(0, 0, 4, 4);
         let b = tile_to_world(1, 0, 4, 4);
         assert!((b.x - a.x - TILE_SIZE).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn level_tiles_world_to_tile_round_trips() {
+        let tiles = make_tiles(32, 32, true);
+        for x in 0..32usize {
+            for y in 0..32usize {
+                let world = tiles.tile_to_world(x, y);
+                let back = tiles.world_to_tile(world).expect("in-bounds tile round-trip failed");
+                assert_eq!(back, (x, y), "round-trip mismatch at tile ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn level_tiles_world_to_tile_out_of_bounds_returns_none() {
+        let tiles = make_tiles(4, 4, true);
+        assert!(tiles.world_to_tile(Vec2::new(9999.0, 9999.0)).is_none());
+        assert!(tiles.world_to_tile(Vec2::new(-9999.0, -9999.0)).is_none());
+    }
+
+    #[test]
+    fn level_tiles_is_walkable_respects_flags() {
+        let mut tiles = make_tiles(3, 3, false);
+        tiles.walkable[4] = true; // center tile (1, 1)
+        assert!(tiles.is_walkable(1, 1));
+        assert!(!tiles.is_walkable(0, 0));
+        assert!(!tiles.is_walkable(99, 99)); // out of bounds
     }
 }
