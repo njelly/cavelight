@@ -16,7 +16,10 @@ mod level;
 mod npc;
 mod player_input;
 mod signpost;
+mod skeleton;
+mod spawner;
 mod sprite_animation;
+mod wander;
 
 use bevy::prelude::*;
 use avian2d::prelude::*;
@@ -39,7 +42,10 @@ use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
 use npc::NpcPlugin;
 use signpost::SignpostPlugin;
+use skeleton::SkeletonPlugin;
+use spawner::SpawnerPlugin;
 use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
+use wander::WanderPlugin;
 
 // One grid cell = 8x8 pixels
 pub const GRID_SIZE: f32 = 8.0;
@@ -111,8 +117,11 @@ fn main() {
                 NpcPlugin,
                 PlayerInputPlugin,
                 SignpostPlugin,
+                SkeletonPlugin,
+                SpawnerPlugin,
                 SpriteAnimationPlugin,
                 InteractionReticlePlugin,
+                WanderPlugin,
             ),
         ))
         .register_type::<PlayerLantern>()

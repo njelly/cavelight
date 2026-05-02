@@ -44,4 +44,8 @@
     // Ladder
     "ladder_up": (frames: [16], fps: 1),
     "ladder_down": (frames: [15], fps: 1),
+
+    // Spawner
+    "spawner_pulse": (frames: [25, 24, 23], fps: 4.0),
+    "spawner_source": (frames: [18], fps: 1.0),
 }
