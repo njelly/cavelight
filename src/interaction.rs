@@ -2,6 +2,7 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 
 use crate::grid_mover::GridMoverSet;
+use crate::inventory::InputMode;
 use crate::player_input::{Facing, PlayerControlled};
 use crate::GRID_SIZE;
 
@@ -50,16 +51,20 @@ impl Plugin for InteractionPlugin {
 /// On Space press, tests the tile directly in front of the player for [`Interactable`] entities
 /// and triggers an [`InteractEvent`] for each one found.
 ///
+/// Bails immediately when [`InputMode::Inventory`] is active — the player cannot
+/// interact with world objects while the inventory screen is open.
+///
 /// Uses avian2d [`SpatialQuery::point_intersections`] to find colliders at the target position,
 /// then filters for those carrying the [`Interactable`] marker before triggering.
 fn fire_interact_events(
     keys: Res<ButtonInput<KeyCode>>,
+    input_mode: Res<InputMode>,
     player_query: Query<(&Transform, &Facing), With<PlayerControlled>>,
     interactable_query: Query<(), With<Interactable>>,
     spatial_query: SpatialQuery,
     mut commands: Commands,
 ) {
-    if !keys.just_pressed(KeyCode::Space) {
+    if *input_mode != InputMode::Playing || !keys.just_pressed(KeyCode::Space) {
         return;
     }
 

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::grid_mover::{GridMover, GridMoverSet};
+use crate::inventory::InputMode;
 
 /// Which cardinal direction the player entity is currently facing.
 ///
@@ -95,10 +96,20 @@ impl Plugin for PlayerInputPlugin {
 }
 
 /// Reads WASD/arrow keys and writes the result into [`PlayerInput`] on the player entity.
+///
+/// Clears direction when [`InputMode::Inventory`] is active so the player stops
+/// moving the moment the inventory screen opens.
 fn read_keyboard_input(
     keys: Res<ButtonInput<KeyCode>>,
+    input_mode: Res<InputMode>,
     mut query: Query<&mut PlayerInput, With<PlayerControlled>>,
 ) {
+    if *input_mode != InputMode::Playing {
+        for mut input in &mut query {
+            input.direction = None;
+        }
+        return;
+    }
     for mut input in &mut query {
         input.direction = if keys.pressed(KeyCode::ArrowUp) || keys.pressed(KeyCode::KeyW) {
             Some(IVec2::Y)

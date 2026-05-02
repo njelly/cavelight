@@ -2,20 +2,22 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 
 use crate::interaction::{Interactable, InteractEvent};
+use crate::inventory::{ActiveChest, InputMode};
+use crate::item::{Inventory, ItemStack};
 use crate::level::ChestSpawnPoint;
 use crate::GRID_SIZE;
 
 /// State component for a chest entity.
 ///
-/// A chest starts closed and can be toggled open by the player interacting with it.
-/// `is_open` drives the displayed sprite frame and will gate future inventory logic.
+/// Tracks whether the chest is open or closed. Opening a chest also opens the
+/// inventory UI and sets [`ActiveChest`] so the dual-panel view is displayed.
 #[derive(Component, Debug, Reflect)]
 #[reflect(Component)]
 pub struct Chest {
     pub is_open: bool,
 }
 
-/// Spawns the chest and registers the observer that toggles it open/closed on interaction.
+/// Spawns the chest and registers the observer that handles interactions.
 pub struct ChestPlugin;
 
 impl Plugin for ChestPlugin {
@@ -26,10 +28,10 @@ impl Plugin for ChestPlugin {
     }
 }
 
-/// Spawns the chest at [`ChestSpawnPoint`] with a closed sprite (atlas frame 3).
+/// Spawns the chest at [`ChestSpawnPoint`] with starting inventory (8 arrows + 1 bow).
 ///
-/// The chest gets [`Interactable`] so the interaction system can detect it via
-/// spatial query, and a static [`Collider`] so the player cannot walk through it.
+/// The chest starts closed (atlas frame 3). [`Interactable`] lets the interaction
+/// system detect it, and a static [`Collider`] prevents the player walking through it.
 fn spawn_chest(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -39,8 +41,15 @@ fn spawn_chest(
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let layout_handle = layouts.add(layout);
 
+    // Stub: always start with 8 arrows and 1 bow. The level generator will
+    // eventually vary chest contents based on depth / seed.
+    let mut inventory = Inventory::new(16);
+    inventory.insert_first_empty(ItemStack::new("arrow", 8));
+    inventory.insert_first_empty(ItemStack::new("bow", 1));
+
     commands.spawn((
         Chest { is_open: false },
+        inventory,
         Interactable,
         Sprite::from_atlas_image(
             asset_server.load("atlas_8x8.png"),
@@ -55,18 +64,29 @@ fn spawn_chest(
     ));
 }
 
-/// Observer that toggles a chest between open and closed when the player interacts with it.
+/// Observer that toggles a chest open/closed on player interaction.
 ///
-/// Reacts to [`InteractEvent`] triggers. Switches [`Chest::is_open`] and the sprite
-/// atlas index (3 = closed, 4 = open) for the targeted chest entity.
+/// **Opening**: flips sprite to frame 4, sets [`ActiveChest`] to this entity,
+/// and switches [`InputMode`] to [`InputMode::Inventory`] so the inventory UI opens.
+///
+/// **Closing**: flips sprite back to frame 3. The inventory UI is closed
+/// separately (via Escape or the X button); closing the chest does not reopen it.
 fn on_chest_interact(
     on: On<InteractEvent>,
     mut chest_query: Query<(&mut Chest, &mut Sprite)>,
+    mut input_mode: ResMut<InputMode>,
+    mut active_chest: ResMut<ActiveChest>,
 ) {
     if let Ok((mut chest, mut sprite)) = chest_query.get_mut(on.event().entity) {
         chest.is_open = !chest.is_open;
         if let Some(atlas) = &mut sprite.texture_atlas {
             atlas.index = if chest.is_open { 4 } else { 3 };
         }
+        if chest.is_open {
+            active_chest.0 = Some(on.event().entity);
+            *input_mode = InputMode::Inventory;
+        }
+        // When closing the chest the inventory was already dismissed by the UI —
+        // no need to change InputMode here.
     }
 }
