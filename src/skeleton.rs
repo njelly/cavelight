@@ -1,10 +1,10 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use crate::goap::GoapAgent;
 use crate::grid_mover::GridMover;
 use crate::spawner::{PulseFx, SpawnRequested, SpawnType, SpawnedBy};
 use crate::sprite_animation::SpriteAnimation;
-use crate::wander::Wander;
 use crate::GRID_SIZE;
 
 // ---------------------------------------------------------------------------
@@ -38,10 +38,10 @@ impl Plugin for SkeletonPlugin {
 /// Observes [`SpawnRequested`] triggers and spawns a skeleton when the type matches.
 ///
 /// Each skeleton is placed at the event position with:
-/// - A [`Wander`] controller (slower re-path interval and smaller radius than the NPC).
+/// - A [`GoapAgent`] wander controller (smaller radius and longer idle pauses than the NPC).
 /// - A [`GridMover`] at half the NPC's speed (`16.0 px/s`).
 /// - A [`SpawnedBy`] tag so the origin spawner can count active instances.
-/// - A [`PulseFx`] child entity that plays `spawner_pulse` underneath the skeleton
+/// - A [`PulseFx`] standalone entity that plays `spawner_pulse` at the spawn tile
 ///   and auto-despawns when the animation finishes.
 fn spawn_skeletons(
     event: On<SpawnRequested>,
@@ -75,7 +75,7 @@ fn spawn_skeletons(
         Transform::from_xyz(ev.position.x, ev.position.y, 0.0),
         SpriteAnimation::with_name("skeleton", true),
         mover,
-        Wander::new(2.5, 4, 8),
+        GoapAgent::wander(4, 8, 2.0, 5.0),
         RigidBody::Kinematic,
         Collider::rectangle(GRID_SIZE, GRID_SIZE),
     ));
