@@ -62,7 +62,7 @@ fn spawn_npc(
         ),
         Transform::from_xyz(spawn_point.0.x, spawn_point.0.y, 0.0),
         SpriteAnimation::with_name("npc_female", true),
-        GridMover::new(GRID_SIZE),
+        GridMover::new(GRID_SIZE).with_walk_speed(16.0),
         RigidBody::Kinematic,
         Collider::rectangle(GRID_SIZE, GRID_SIZE),
         GoapAgent::wander(6, 10, 1.0, 3.0),

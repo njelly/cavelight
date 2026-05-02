@@ -275,6 +275,9 @@ fn execute_navigate(
             continue;
         }
 
+        // Wander navigation always uses walk speed.
+        mover.walk();
+
         let world_pos = transform.translation.truncate();
         let snapped = snap_to_grid(world_pos, mover.grid_size);
         let nav_radius = agent.nav_radius;
@@ -289,8 +292,15 @@ fn execute_navigate(
             }
         }
 
-        // Pick a new destination when the path runs out.
         if agent.nav_path.is_empty() {
+            if agent.nav_destination.is_some() {
+                // Path exhausted after traveling — arrived at destination, action complete.
+                agent.complete_navigate();
+                mover.direction = None;
+                continue;
+            }
+
+            // First tick of this action: pick a destination and compute a path to it.
             if let Some(start_tile) = level.world_to_tile(world_pos) {
                 if let Some(dest) =
                     pick_random_walkable_in_radius(&level, start_tile, nav_radius, &mut rng)
@@ -303,13 +313,13 @@ fn execute_navigate(
                     }
                 }
             }
-        }
 
-        // Still no path — no reachable destination, action complete.
-        if agent.nav_path.is_empty() {
-            agent.complete_navigate();
-            mover.direction = None;
-            continue;
+            // No reachable destination found — complete action immediately.
+            if agent.nav_path.is_empty() {
+                agent.complete_navigate();
+                mover.direction = None;
+                continue;
+            }
         }
 
         // Replan if the next step is dynamically blocked.
