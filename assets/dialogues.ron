@@ -5,4 +5,10 @@
             "Welcome, adventurer.",
         ],
     ),
+        (
+        id: "npc_greeting",
+        pages: [
+            "Where is this place? Do we know each other?",
+        ],
+    ),
 ]

@@ -12,6 +12,39 @@ use bevy_light_2d::prelude::*;
 use rand::thread_rng;
 
 use generator::generate_level1;
+
+// ---------------------------------------------------------------------------
+// Seed utilities
+// ---------------------------------------------------------------------------
+
+/// Reads the level seed from `--seed <n>` CLI arg or the `CAVELIGHT_SEED` env var.
+///
+/// If neither is set, a random seed is derived from the current nanosecond timestamp.
+/// The resolved seed is always printed to the log so it can be reproduced.
+fn resolve_seed() -> u64 {
+    // CLI: `cargo run -- --seed 12345`
+    let args: Vec<String> = std::env::args().collect();
+    for i in 0..args.len() {
+        if args[i] == "--seed" {
+            if let Some(raw) = args.get(i + 1) {
+                if let Ok(n) = raw.parse::<u64>() {
+                    return n;
+                }
+            }
+        }
+    }
+    // Env var: `CAVELIGHT_SEED=12345 cargo run`
+    if let Ok(raw) = std::env::var("CAVELIGHT_SEED") {
+        if let Ok(n) = raw.parse::<u64>() {
+            return n;
+        }
+    }
+    // Fallback: nanosecond timestamp.
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
+}
 use tile::TileType;
 
 /// Width of the generated level in tiles.
@@ -148,7 +181,9 @@ impl Plugin for LevelPlugin {
 /// avoiding per-tile draw calls. Wall tiles also get invisible [`LightOccluder2d`] entities so
 /// they cast shadows when `bevy_light_2d` point lights are present.
 fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    let map = generate_level1(LEVEL_WIDTH, LEVEL_HEIGHT);
+    let seed = resolve_seed();
+    info!("Level seed: {seed} — rerun with `--seed {seed}` to reproduce this layout.");
+    let map = generate_level1(LEVEL_WIDTH, LEVEL_HEIGHT, seed);
     let mut rng = thread_rng();
 
     let img_w = LEVEL_WIDTH * TILE_SIZE as usize;
