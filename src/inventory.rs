@@ -29,7 +29,7 @@ pub const HOTBAR_HEIGHT_VH: f32 = HOTBAR_SLOT_VH + 2.0 * HOTBAR_PADDING_VH + HOT
 /// Index of the first hotbar slot inside the player's [`Inventory`].
 ///
 /// Slots 0..HOTBAR_START are the 4×4 main grid; slots HOTBAR_START.. are hotbar slots.
-const HOTBAR_START: usize = GRID_COLS * GRID_ROWS;
+pub const HOTBAR_START: usize = GRID_COLS * GRID_ROWS;
 
 const SLOT_BORDER_PX: f32 = 2.0;
 const HEADER_PADDING_VH: f32 = 1.5;
@@ -620,6 +620,7 @@ fn handle_slot_click(
     active_chest: Res<ActiveChest>,
     mut chest_inv: Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
     mut held: ResMut<HeldItem>,
+    item_library: Option<Res<ItemLibrary>>,
 ) {
     if *input_mode != InputMode::Inventory {
         return;
@@ -628,6 +629,15 @@ fn handle_slot_click(
     for (interaction, slot_ref) in &slot_query {
         if *interaction != Interaction::Pressed {
             continue;
+        }
+
+        // Block non-equippable items (e.g. arrows) from being placed into hotbar slots.
+        if slot_ref.index >= HOTBAR_START {
+            if let (Some(library), Some(stack)) = (item_library.as_ref(), held.0.as_ref()) {
+                if library.def(&stack.id).map_or(false, |d| !d.equippable) {
+                    continue;
+                }
+            }
         }
 
         let old_slot = match slot_ref.panel {
