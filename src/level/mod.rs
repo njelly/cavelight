@@ -89,9 +89,13 @@ pub struct SignpostSpawnPoint(pub Vec2);
 #[derive(Resource)]
 pub struct NpcSpawnPoint(pub Vec2);
 
-/// World-space position where the exit ladder should spawn for the current level.
+/// World-space position where the exit ladder (down) should spawn — inside the end room.
 #[derive(Resource)]
 pub struct LadderSpawnPoint(pub Vec2);
+
+/// World-space position where the entrance ladder (up) should spawn — inside the start room.
+#[derive(Resource)]
+pub struct LadderUpSpawnPoint(pub Vec2);
 
 /// World-space position of the enemy spawner entity in the key chest room.
 #[derive(Resource)]
@@ -276,6 +280,7 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         orientation: map.locked_door_orientation,
     });
     commands.insert_resource(LadderSpawnPoint(conv(map.ladder_pos)));
+    commands.insert_resource(LadderUpSpawnPoint(conv(map.ladder_up_pos)));
     commands.insert_resource(SpawnerSpawnPoint(conv(map.spawner_pos)));
 
     let walkable = map.tiles.iter().map(|t| matches!(t, TileType::Floor)).collect();

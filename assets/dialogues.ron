@@ -11,4 +11,11 @@
             "Where is this place? Do we know each other?",
         ],
     ),
+        (
+        id: "first_ladder_up",
+        pages: [
+            "The way out is caved in. The ladder is blocked from above.",
+            "There's nothing for you out there anyway..."
+        ],
+    ),
 ]
