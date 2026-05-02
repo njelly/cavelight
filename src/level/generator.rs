@@ -1,5 +1,4 @@
 use std::collections::{HashSet, VecDeque};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -97,11 +96,7 @@ impl MapData {
 /// 5. Enforce a 1-tile bottleneck at the locked door position.
 /// 6. Flood-fill from the start room to wall off any disconnected scraps.
 /// 7. Extract all spawn-point coordinates from within their respective rooms.
-pub fn generate_level1(width: usize, height: usize) -> MapData {
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
+pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let mut tiles = vec![TileType::Wall; width * height];
@@ -169,15 +164,13 @@ pub fn generate_level1(width: usize, height: usize) -> MapData {
     // ------------------------------------------------------------------
     enforce_border(&mut tiles, width, height);
 
-    // Force the door tile open and wall off its immediate neighbours so
-    // the passage is exactly 1 tile wide at that y-row.
+    // Wall the entire row at door_y, then restore exactly the door tile.
+    // Cardinal-only movement means a complete horizontal wall is an unbreakable barrier —
+    // no matter how much CA widens the corridor, there is no path around the door.
+    for x in 0..width {
+        tiles[door_y * width + x] = TileType::Wall;
+    }
     tiles[door_y * width + door_x] = TileType::Floor;
-    if door_x > 0 {
-        tiles[door_y * width + door_x - 1] = TileType::Wall;
-    }
-    if door_x + 1 < width {
-        tiles[door_y * width + door_x + 1] = TileType::Wall;
-    }
 
     // ------------------------------------------------------------------
     // 7. Flood-fill from the start room center; wall off unreachable scraps.
@@ -487,7 +480,7 @@ mod tests {
 
     #[test]
     fn generate_level1_correct_dimensions() {
-        let map = generate_level1(64, 64);
+        let map = generate_level1(64, 64, 0);
         assert_eq!(map.tiles.len(), 64 * 64);
         assert_eq!(map.width, 64);
         assert_eq!(map.height, 64);
@@ -495,14 +488,14 @@ mod tests {
 
     #[test]
     fn player_start_is_floor_tile() {
-        let map = generate_level1(64, 64);
+        let map = generate_level1(64, 64, 0);
         let (sx, sy) = map.player_start;
         assert!(matches!(map.get(sx, sy), TileType::Floor), "player start must be floor");
     }
 
     #[test]
     fn all_spawn_points_are_floor_tiles() {
-        let map = generate_level1(64, 64);
+        let map = generate_level1(64, 64, 0);
         let spawns = [
             ("campfire", map.campfire_spawn),
             ("signpost", map.signpost_spawn),
@@ -519,14 +512,14 @@ mod tests {
 
     #[test]
     fn locked_door_tile_is_floor() {
-        let map = generate_level1(64, 64);
+        let map = generate_level1(64, 64, 0);
         let (dx, dy) = map.locked_door_pos;
         assert!(matches!(map.get(dx, dy), TileType::Floor), "door tile must be floor");
     }
 
     #[test]
     fn locked_door_neighbours_are_walls() {
-        let map = generate_level1(64, 64);
+        let map = generate_level1(64, 64, 0);
         let (dx, dy) = map.locked_door_pos;
         if dx > 0 {
             assert!(
@@ -543,8 +536,32 @@ mod tests {
     }
 
     #[test]
+    fn locked_door_row_is_solid_wall_barrier() {
+        // Every tile in the door row must be a wall except the single door tile.
+        // A complete horizontal barrier guarantees cardinal-only movement cannot
+        // bypass the locked door regardless of how CA shaped the corridor.
+        for seed in [0u64, 1, 42, 999, 12345] {
+            let map = generate_level1(64, 64, seed);
+            let (dx, dy) = map.locked_door_pos;
+            for x in 0..map.width {
+                if x == dx {
+                    assert!(
+                        matches!(map.get(x, dy), TileType::Floor),
+                        "seed {seed}: door tile ({dx},{dy}) must be floor"
+                    );
+                } else {
+                    assert!(
+                        matches!(map.get(x, dy), TileType::Wall),
+                        "seed {seed}: row {dy} tile x={x} must be wall (bypass route)"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn borders_are_always_walls() {
-        let map = generate_level1(64, 64);
+        let map = generate_level1(64, 64, 0);
         for x in 0..map.width {
             assert!(matches!(map.get(x, 0), TileType::Wall));
             assert!(matches!(map.get(x, map.height - 1), TileType::Wall));
@@ -557,7 +574,7 @@ mod tests {
 
     #[test]
     fn all_floor_tiles_are_connected() {
-        let map = generate_level1(64, 64);
+        let map = generate_level1(64, 64, 0);
         let floor_tiles: Vec<usize> = map
             .tiles
             .iter()
