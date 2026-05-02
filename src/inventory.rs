@@ -26,6 +26,11 @@ const HOTBAR_BOTTOM_MARGIN_VH: f32 = 1.5;
 /// Used by sibling modules (e.g. dialogue) to anchor panels directly above the hotbar.
 pub const HOTBAR_HEIGHT_VH: f32 = HOTBAR_SLOT_VH + 2.0 * HOTBAR_PADDING_VH + HOTBAR_BOTTOM_MARGIN_VH;
 
+/// Index of the first hotbar slot inside the player's [`Inventory`].
+///
+/// Slots 0..HOTBAR_START are the 4×4 main grid; slots HOTBAR_START.. are hotbar slots.
+const HOTBAR_START: usize = GRID_COLS * GRID_ROWS;
+
 const SLOT_BORDER_PX: f32 = 2.0;
 const HEADER_PADDING_VH: f32 = 1.5;
 const CLOSE_BTN_SIZE_VH: f32 = 5.0;
@@ -50,6 +55,14 @@ pub enum InputMode {
     /// Dialogue panel is open — Space advances pages, player cannot move or interact.
     Dialogue,
 }
+
+/// Which hotbar slot (0–3) is currently equipped, if any.
+///
+/// Set by pressing keys 1–4 during [`InputMode::Playing`]. Systems that need to
+/// know the active item (e.g. combat, use-item) read this resource.
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
+pub struct EquippedHotbarSlot(pub Option<usize>);
 
 /// Tracks the chest entity (if any) whose inventory is currently displayed.
 ///
@@ -136,8 +149,10 @@ impl Plugin for InventoryPlugin {
         app.init_resource::<InputMode>()
             .init_resource::<ActiveChest>()
             .init_resource::<HeldItem>()
+            .init_resource::<EquippedHotbarSlot>()
             .register_type::<InputMode>()
             .register_type::<HotbarSlot>()
+            .register_type::<EquippedHotbarSlot>()
             .add_systems(Startup, (spawn_inventory_ui, spawn_hotbar))
             .add_systems(
                 Update,
@@ -149,6 +164,8 @@ impl Plugin for InventoryPlugin {
                     update_held_cursor,
                     sync_overlay_visibility,
                     sync_chest_panel_visibility,
+                    select_hotbar_slot,
+                    sync_hotbar_borders,
                 ),
             );
     }
@@ -421,6 +438,10 @@ fn spawn_inventory_ui(mut commands: Commands) {
 }
 
 /// Spawns the always-visible hotbar anchored to the bottom-centre of the screen.
+///
+/// Each slot is a full inventory slot (player inventory indices [`HOTBAR_START`]..):
+/// it carries [`InventorySlotRef`], [`Interaction`] for drag-drop, and a [`SlotIcon`]
+/// child so the existing icon-sync system displays held items automatically.
 fn spawn_hotbar(mut commands: Commands) {
     let slot_bg = Color::srgb(0.08, 0.07, 0.06);
     let slot_border = Color::srgb(0.32, 0.27, 0.22);
@@ -448,18 +469,41 @@ fn spawn_hotbar(mut commands: Commands) {
                 BackgroundColor(panel_bg),
             ))
             .with_children(|hotbar| {
-                for _ in 0..HOTBAR_SLOTS {
-                    hotbar.spawn((
-                        Node {
-                            width: Val::Vh(HOTBAR_SLOT_VH),
-                            height: Val::Vh(HOTBAR_SLOT_VH),
-                            border: UiRect::all(Val::Px(SLOT_BORDER_PX)),
-                            ..default()
-                        },
-                        BackgroundColor(slot_bg),
-                        BorderColor::all(slot_border),
-                        HotbarSlot,
-                    ));
+                for i in 0..HOTBAR_SLOTS {
+                    let slot_ref = InventorySlotRef {
+                        panel: InventoryPanel::Player,
+                        index: HOTBAR_START + i,
+                    };
+                    hotbar
+                        .spawn((
+                            Node {
+                                width: Val::Vh(HOTBAR_SLOT_VH),
+                                height: Val::Vh(HOTBAR_SLOT_VH),
+                                border: UiRect::all(Val::Px(SLOT_BORDER_PX)),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                overflow: Overflow::clip(),
+                                ..default()
+                            },
+                            BackgroundColor(slot_bg),
+                            BorderColor::all(slot_border),
+                            Interaction::default(),
+                            HotbarSlot,
+                            slot_ref,
+                        ))
+                        .with_children(|slot| {
+                            slot.spawn((
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    height: Val::Percent(100.0),
+                                    ..default()
+                                },
+                                ImageNode::default(),
+                                Visibility::Hidden,
+                                SlotIcon,
+                                slot_ref,
+                            ));
+                        });
                 }
             });
         });
@@ -563,16 +607,24 @@ fn sync_chest_panel_visibility(
 
 /// Handles slot clicks — swaps [`HeldItem`] with the clicked slot's contents.
 ///
+/// Only active while [`InputMode::Inventory`] is set, preventing accidental hotbar
+/// drain when the player clicks during normal gameplay.
+///
 /// Every click is a full swap: the held item goes into the slot and the slot's
 /// previous contents become the new held item. Covers all four combinations:
 /// pick up, place, swap two different items, and no-op (both sides empty).
 fn handle_slot_click(
+    input_mode: Res<InputMode>,
     slot_query: Query<(&Interaction, &InventorySlotRef), Changed<Interaction>>,
     mut player_inv: Query<&mut Inventory, (With<PlayerControlled>, Without<Chest>)>,
     active_chest: Res<ActiveChest>,
     mut chest_inv: Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
     mut held: ResMut<HeldItem>,
 ) {
+    if *input_mode != InputMode::Inventory {
+        return;
+    }
+
     for (interaction, slot_ref) in &slot_query {
         if *interaction != Interaction::Pressed {
             continue;
@@ -665,4 +717,59 @@ fn update_held_cursor(
     }
 
     *vis = Visibility::Visible;
+}
+
+/// Selects a hotbar slot when the player presses 1–4 during [`InputMode::Playing`].
+///
+/// The selected slot is stored in [`EquippedHotbarSlot`] and used by combat and
+/// item-use systems to determine the active item. Pressing the same key again
+/// keeps that slot selected (no toggle — use deselect logic when needed).
+fn select_hotbar_slot(
+    keys: Res<ButtonInput<KeyCode>>,
+    input_mode: Res<InputMode>,
+    mut equipped: ResMut<EquippedHotbarSlot>,
+) {
+    if *input_mode != InputMode::Playing {
+        return;
+    }
+
+    let slot = if keys.just_pressed(KeyCode::Digit1) {
+        Some(0)
+    } else if keys.just_pressed(KeyCode::Digit2) {
+        Some(1)
+    } else if keys.just_pressed(KeyCode::Digit3) {
+        Some(2)
+    } else if keys.just_pressed(KeyCode::Digit4) {
+        Some(3)
+    } else {
+        None
+    };
+
+    if let Some(s) = slot {
+        equipped.0 = Some(s);
+    }
+}
+
+/// Outlines the selected hotbar slot with a white border; all others use the normal border.
+///
+/// Runs only when [`EquippedHotbarSlot`] changes to keep UI updates minimal.
+fn sync_hotbar_borders(
+    equipped: Res<EquippedHotbarSlot>,
+    mut slots: Query<(&InventorySlotRef, &mut BorderColor), With<HotbarSlot>>,
+) {
+    if !equipped.is_changed() {
+        return;
+    }
+
+    let selected_border = BorderColor::all(Color::WHITE);
+    let normal_border = BorderColor::all(Color::srgb(0.32, 0.27, 0.22));
+
+    for (slot_ref, mut border) in &mut slots {
+        let hotbar_idx = slot_ref.index.saturating_sub(HOTBAR_START);
+        *border = if equipped.0 == Some(hotbar_idx) {
+            selected_border
+        } else {
+            normal_border
+        };
+    }
 }

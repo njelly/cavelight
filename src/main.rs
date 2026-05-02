@@ -167,7 +167,8 @@ fn spawn_player(
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let layout_handle = layouts.add(layout);
 
-    let mut inventory = Inventory::new(16);
+    // 16 main slots (4×4 grid) + 4 hotbar slots = 20 total.
+    let mut inventory = Inventory::new(20);
     inventory.put(0, Some(ItemStack::new("dagger", 1))).ok();
 
     commands
