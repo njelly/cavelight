@@ -3,6 +3,7 @@
 mod camera;
 mod campfire;
 mod chest;
+mod dialogue;
 mod fps_counter;
 mod grid_mover;
 mod interaction;
@@ -22,6 +23,7 @@ use bevy_light_2d::prelude::*;
 use camera::CameraPlugin;
 use campfire::CampfirePlugin;
 use chest::ChestPlugin;
+use dialogue::DialoguePlugin;
 use fps_counter::FpsCounterPlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
 use interaction::InteractionPlugin;
@@ -90,6 +92,7 @@ fn main() {
                 CameraPlugin,
                 CampfirePlugin,
                 ChestPlugin,
+                DialoguePlugin,
                 FpsCounterPlugin,
                 GridMoverPlugin,
                 InteractionPlugin,

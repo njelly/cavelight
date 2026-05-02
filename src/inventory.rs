@@ -22,7 +22,9 @@ const HOTBAR_SLOT_VH: f32 = SLOT_VH;
 const HOTBAR_PADDING_VH: f32 = 0.8;
 const HOTBAR_BOTTOM_MARGIN_VH: f32 = 1.5;
 /// Total vh the hotbar occupies from the bottom edge of the screen.
-const HOTBAR_HEIGHT_VH: f32 = HOTBAR_SLOT_VH + 2.0 * HOTBAR_PADDING_VH + HOTBAR_BOTTOM_MARGIN_VH;
+///
+/// Used by sibling modules (e.g. dialogue) to anchor panels directly above the hotbar.
+pub const HOTBAR_HEIGHT_VH: f32 = HOTBAR_SLOT_VH + 2.0 * HOTBAR_PADDING_VH + HOTBAR_BOTTOM_MARGIN_VH;
 
 const SLOT_BORDER_PX: f32 = 2.0;
 const HEADER_PADDING_VH: f32 = 1.5;
@@ -32,11 +34,11 @@ const CLOSE_BTN_SIZE_VH: f32 = 5.0;
 // Resources
 // ---------------------------------------------------------------------------
 
-/// Controls whether player movement / world interaction or the inventory UI
+/// Controls whether player movement / world interaction or a UI panel
 /// receives keyboard and mouse input.
 ///
-/// Systems that handle player input check this resource and bail early when
-/// [`InputMode::Inventory`] is active.
+/// Systems that handle player input check this resource and bail early unless
+/// [`InputMode::Playing`] is active. Each exclusive mode owns input for its lifetime.
 #[derive(Resource, Default, PartialEq, Eq, Debug, Clone, Copy, Reflect)]
 #[reflect(Resource)]
 pub enum InputMode {
@@ -45,6 +47,8 @@ pub enum InputMode {
     Playing,
     /// Inventory screen is open — input goes to the UI instead.
     Inventory,
+    /// Dialogue panel is open — Space advances pages, player cannot move or interact.
+    Dialogue,
 }
 
 /// Tracks the chest entity (if any) whose inventory is currently displayed.
