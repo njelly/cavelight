@@ -133,6 +133,11 @@ impl Inventory {
         }
     }
 
+    /// Returns the total number of slots (both occupied and empty).
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
     /// Inserts `stack` into the first empty slot. Returns `false` if the inventory is full.
     pub fn insert_first_empty(&mut self, stack: ItemStack) -> bool {
         for slot in &mut self.slots {

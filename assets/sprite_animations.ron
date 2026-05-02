@@ -24,14 +24,24 @@
     "flower_patch": (frames: [512, 513], fps: 1.135),
 
     // Chest
-    "chest_closed": (frames: [3], fps: 1.0),
-    "chest_open":   (frames: [4], fps: 1.0),
+    "chest_closed": (frames: [3], fps: 1),
+    "chest_open":   (frames: [4], fps: 1),
 
     // Signpost
-    "signpost": (frames: [136], fps: 1.0),
+    "signpost": (frames: [136], fps: 1),
 
     // Campfire
     "campfire": (frames: [75, 76], fps: 8),
     "campfire_smoldering": (frames: [139, 140], fps: 0.4),
-    "campfire_extinguished": (frames: [141], fps: 1.0),
+    "campfire_extinguished": (frames: [141], fps: 1),
+
+    // Door
+    "door_eastwest_closed": (frames: [145], fps: 1),
+    "door_eastwest_open": (frames: [209], fps: 1),
+    "door_northsouth_closed": (frames: [146], fps: 1),
+    "door_northsouth_open": (frames: [210], fps: 1),
+
+    // Ladder
+    "ladder_up": (frames: [16], fps: 1),
+    "ladder_down": (frames: [15], fps: 1),
 }

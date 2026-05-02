@@ -117,8 +117,33 @@ impl ActiveDialogueState {
 /// `None` when the dialogue panel is closed. Set by [`on_interact_with_dialogue_source`]
 /// when the player interacts with a [`DialogueSource`] entity, and cleared by
 /// [`advance_dialogue`] when the last page is dismissed.
+///
+/// External systems (e.g. door interactions) can open a dialogue directly via [`ActiveDialogue::open`]
+/// without needing access to the private [`ActiveDialogueState`] internals.
 #[derive(Resource, Default)]
 pub struct ActiveDialogue(Option<ActiveDialogueState>);
+
+impl ActiveDialogue {
+    /// Opens a dialogue session from raw parts, bypassing [`DialogueLibrary`] lookup.
+    ///
+    /// Use this when the content and source name are determined at runtime (e.g. a locked
+    /// door that shows different text depending on inventory state). The `just_opened` guard
+    /// is set so the Space press that triggered the interaction does not also advance the page.
+    pub fn open(
+        &mut self,
+        source_name: impl Into<String>,
+        pages: Vec<String>,
+        input_mode: &mut InputMode,
+    ) {
+        self.0 = Some(ActiveDialogueState {
+            source_name: source_name.into(),
+            pages,
+            current_page: 0,
+            just_opened: true,
+        });
+        *input_mode = InputMode::Dialogue;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // UI marker components

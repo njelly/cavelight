@@ -17,4 +17,10 @@
         icon_path: "item_icons/Bow_01.png",
         max_stack: 1,
     ),
+    (
+        id: "key",
+        display_name: "Key",
+        icon_path: "item_icons/Key.png",
+        max_stack: 1,
+    ),
 ]

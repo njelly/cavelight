@@ -4,12 +4,14 @@ mod camera;
 mod campfire;
 mod chest;
 mod dialogue;
+mod door;
 mod fps_counter;
 mod grid_mover;
 mod interaction;
 mod interaction_reticle;
 mod inventory;
 mod item;
+mod ladder;
 mod level;
 mod npc;
 mod player_input;
@@ -25,12 +27,14 @@ use camera::CameraPlugin;
 use campfire::CampfirePlugin;
 use chest::ChestPlugin;
 use dialogue::DialoguePlugin;
+use door::DoorPlugin;
 use fps_counter::FpsCounterPlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
 use interaction::InteractionPlugin;
 use interaction_reticle::InteractionReticlePlugin;
 use inventory::InventoryPlugin;
 use item::{Inventory, ItemPlugin, ItemStack};
+use ladder::LadderPlugin;
 use level::{LevelPlugin, PlayerSpawnPoint};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
 use npc::NpcPlugin;
@@ -95,11 +99,15 @@ fn main() {
                 CampfirePlugin,
                 ChestPlugin,
                 DialoguePlugin,
+                DoorPlugin,
                 FpsCounterPlugin,
                 GridMoverPlugin,
                 InteractionPlugin,
+            ),
+            (
                 InventoryPlugin,
                 ItemPlugin,
+                LadderPlugin,
                 NpcPlugin,
                 PlayerInputPlugin,
                 SignpostPlugin,
