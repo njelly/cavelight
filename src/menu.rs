@@ -3,6 +3,7 @@ use bevy::app::AppExit;
 use bevy::ecs::message::MessageWriter;
 use avian2d::prelude::PhysicsGizmos;
 
+use crate::input::{ActionInput, GameAction};
 use crate::inventory::{ActiveChest, HeldItem, InputMode};
 use crate::item::Inventory;
 use crate::player_input::PlayerControlled;
@@ -443,19 +444,19 @@ fn spawn_toggle_row(
 // Tab cycling
 // ---------------------------------------------------------------------------
 
-/// Cycles through menu screens with Tab, or opens the pause screen from gameplay.
+/// Cycles through menu screens with Tab or gamepad Start, or opens the pause screen from gameplay.
 ///
 /// Order: Playing → Paused → Inventory → Settings → Paused (loops).
 /// Any held inventory item is returned to the player when leaving the inventory screen.
 fn handle_tab_cycle(
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     mut input_mode: ResMut<InputMode>,
     mut held: ResMut<HeldItem>,
     mut active_chest: ResMut<ActiveChest>,
     mut player_inv: Query<&mut Inventory, With<PlayerControlled>>,
     mut focus: ResMut<PauseFocusIndex>,
 ) {
-    if !keys.just_pressed(KeyCode::Tab) || *input_mode == InputMode::Dialogue {
+    if !action_input.just_pressed(GameAction::OpenPause) || *input_mode == InputMode::Dialogue {
         return;
     }
 
@@ -484,16 +485,16 @@ fn handle_tab_cycle(
 // Close / escape
 // ---------------------------------------------------------------------------
 
-/// Closes the menu entirely (returns to gameplay) when Escape is pressed while
-/// the pause or settings screen is active.
+/// Closes the menu entirely (returns to gameplay) when Cancel (Escape / gamepad B) is pressed
+/// while the pause or settings screen is active.
 ///
-/// Inventory escape is handled separately by `inventory::close_inventory` since it
+/// Inventory cancel is handled separately by `inventory::close_inventory` since it
 /// has extra cleanup (returning held items, clearing active chest).
 fn handle_menu_escape(
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     mut input_mode: ResMut<InputMode>,
 ) {
-    if !keys.just_pressed(KeyCode::Escape) {
+    if !action_input.just_pressed(GameAction::Cancel) {
         return;
     }
     if matches!(*input_mode, InputMode::Paused | InputMode::Settings) {
@@ -557,31 +558,31 @@ fn sync_settings_visibility(
 // Pause menu navigation
 // ---------------------------------------------------------------------------
 
-/// Moves keyboard focus up (W / ↑) or down (S / ↓) through the pause button list.
+/// Moves focus up (W / ↑ / D-pad up / left stick up) or down through the pause button list.
 fn handle_pause_nav(
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     input_mode: Res<InputMode>,
     mut focus: ResMut<PauseFocusIndex>,
 ) {
     if *input_mode != InputMode::Paused {
         return;
     }
-    if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
+    if action_input.just_pressed(GameAction::MoveNorth) {
         focus.0 = focus.0.saturating_sub(1);
-    } else if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
+    } else if action_input.just_pressed(GameAction::MoveSouth) {
         focus.0 = (focus.0 + 1).min(PAUSE_BUTTON_COUNT - 1);
     }
 }
 
-/// Activates the focused pause-menu button when Space is pressed.
+/// Activates the focused pause-menu button when Confirm (Space / gamepad A) is pressed.
 fn handle_pause_confirm(
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     mut input_mode: ResMut<InputMode>,
     focus: Res<PauseFocusIndex>,
     buttons: Query<&PauseButton>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if *input_mode != InputMode::Paused || !keys.just_pressed(KeyCode::Space) {
+    if *input_mode != InputMode::Paused || !action_input.just_pressed(GameAction::Confirm) {
         return;
     }
     for btn in &buttons {

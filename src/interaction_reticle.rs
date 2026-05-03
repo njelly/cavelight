@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::grid_mover::GridMoverSet;
+use crate::input::{ActionInput, GameAction};
 use crate::player_input::{Facing, PlayerControlled};
 use crate::GRID_SIZE;
 
@@ -78,12 +79,12 @@ fn spawn_reticle(
     }
 }
 
-/// Handles Space input, advances the orbit animation, and updates the reticle sprite color.
+/// Handles Confirm input, advances the orbit animation, and updates the reticle sprite color.
 ///
 /// Runs after [`GridMoverSet`] so [`Facing`] has already been updated by the input chain.
 fn update_reticle(
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     player_query: Query<&Facing, With<PlayerControlled>>,
     mut reticle_query: Query<(&mut InteractionReticle, &mut Sprite, &mut Transform)>,
 ) {
@@ -94,7 +95,7 @@ fn update_reticle(
     for (mut reticle, mut sprite, mut transform) in &mut reticle_query {
         reticle.target_angle = facing.angle();
 
-        if keys.just_pressed(KeyCode::Space) {
+        if action_input.just_pressed(GameAction::Confirm) {
             reticle.last_interact_secs = time.elapsed_secs();
             reticle.activated = true;
         }

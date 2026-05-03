@@ -9,6 +9,7 @@ mod door;
 mod fps_counter;
 mod goap;
 mod grid_mover;
+mod input;
 mod interaction;
 mod interaction_reticle;
 mod inventory;
@@ -25,6 +26,7 @@ mod sprite_animation;
 mod wander;
 
 use bevy::prelude::*;
+
 use avian2d::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -37,6 +39,7 @@ use dialogue::DialoguePlugin;
 use door::DoorPlugin;
 use fps_counter::FpsCounterPlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
+use input::InputPlugin;
 use interaction::InteractionPlugin;
 use interaction_reticle::InteractionReticlePlugin;
 use inventory::InventoryPlugin;
@@ -112,6 +115,7 @@ fn main() {
             (
                 AimPlugin,
                 GoapPlugin,
+                InputPlugin,
                 InventoryPlugin,
                 ItemPlugin,
                 LadderPlugin,
@@ -151,6 +155,7 @@ fn toggle_physics_debug(
         store.config_mut::<PhysicsGizmos>().0.enabled ^= true;
     }
 }
+
 
 /// Spawns the player entity with a lantern child light and a starting inventory.
 ///

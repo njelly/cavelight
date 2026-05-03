@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::grid_mover::{GridMover, GridMoverSet};
+use crate::input::{ActionInput, GameAction};
 use crate::inventory::InputMode;
 
 /// Which cardinal direction the player entity is currently facing.
@@ -88,19 +89,20 @@ impl Plugin for PlayerInputPlugin {
             .register_type::<PlayerInput>()
             .add_systems(
                 Update,
-                (read_keyboard_input, update_facing, apply_input_to_grid_mover)
+                (read_player_input, update_facing, apply_input_to_grid_mover)
                     .chain()
                     .before(GridMoverSet),
             );
     }
 }
 
-/// Reads WASD/arrow keys and writes the result into [`PlayerInput`] on the player entity.
+/// Reads movement actions and writes the result into [`PlayerInput`] on the player entity.
 ///
-/// Clears direction when [`InputMode::Inventory`] is active so the player stops
-/// moving the moment the inventory screen opens.
-fn read_keyboard_input(
-    keys: Res<ButtonInput<KeyCode>>,
+/// Accepts keyboard (WASD/arrows) and gamepad (left stick/D-pad) via [`ActionInput`].
+/// Clears direction when [`InputMode`] is not [`InputMode::Playing`] so the player stops
+/// moving the moment any menu or dialogue screen opens.
+fn read_player_input(
+    action_input: Res<ActionInput>,
     input_mode: Res<InputMode>,
     mut query: Query<&mut PlayerInput, With<PlayerControlled>>,
 ) {
@@ -111,13 +113,14 @@ fn read_keyboard_input(
         return;
     }
     for mut input in &mut query {
-        input.direction = if keys.pressed(KeyCode::ArrowUp) || keys.pressed(KeyCode::KeyW) {
+        // Priority: North > South > West > East (matches prior keyboard-only behavior).
+        input.direction = if action_input.pressed(GameAction::MoveNorth) {
             Some(IVec2::Y)
-        } else if keys.pressed(KeyCode::ArrowDown) || keys.pressed(KeyCode::KeyS) {
+        } else if action_input.pressed(GameAction::MoveSouth) {
             Some(IVec2::NEG_Y)
-        } else if keys.pressed(KeyCode::ArrowLeft) || keys.pressed(KeyCode::KeyA) {
+        } else if action_input.pressed(GameAction::MoveWest) {
             Some(IVec2::NEG_X)
-        } else if keys.pressed(KeyCode::ArrowRight) || keys.pressed(KeyCode::KeyD) {
+        } else if action_input.pressed(GameAction::MoveEast) {
             Some(IVec2::X)
         } else {
             None
