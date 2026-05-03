@@ -139,11 +139,13 @@ fn update_facing(
         if let Some(dir) = input.direction {
             if let Some(new_facing) = Facing::from_direction(dir) {
                 *facing = new_facing;
+                // Only East/West change horizontal orientation; North/South leave flip_x as-is.
+                match new_facing {
+                    Facing::East => sprite.flip_x = false,
+                    Facing::West => sprite.flip_x = true,
+                    _ => {}
+                }
             }
-        }
-        let should_flip = *facing == Facing::West;
-        if sprite.flip_x != should_flip {
-            sprite.flip_x = should_flip;
         }
     }
 }

@@ -6,6 +6,19 @@ use bevy::prelude::*;
 /// Analog axis dead-zone — stick values below this magnitude are treated as zero.
 const STICK_DEADZONE: f32 = 0.5;
 
+/// Tracks whether the left analog stick was past the dead-zone threshold last frame,
+/// per cardinal direction.
+///
+/// Compared against the current frame to generate `just_press` on the initial threshold
+/// crossing, giving menu/inventory navigation the same single-step feel as D-pad input.
+#[derive(Resource, Default)]
+struct StickNavState {
+    north: bool,
+    south: bool,
+    west: bool,
+    east: bool,
+}
+
 /// All named gameplay actions that can be triggered from keyboard or gamepad.
 ///
 /// Systems consume [`ActionInput`] rather than reading [`ButtonInput<KeyCode>`] directly,
@@ -90,6 +103,7 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActionInput>()
+            .init_resource::<StickNavState>()
             // Must run after InputSystems so the Gamepad component has been updated
             // by bevy_gilrs for the current frame before we read it.
             .add_systems(PreUpdate, update_action_input.after(InputSystems));
@@ -102,7 +116,7 @@ impl Plugin for InputPlugin {
 /// populated [`ActionInput`] on their first read each frame.
 ///
 /// Xbox 360 mapping:
-/// - Left stick / D-pad → movement
+/// - Left stick / D-pad → movement (left stick also navigates menus via threshold crossing)
 /// - A (South) → Confirm
 /// - B (East) → Cancel
 /// - Y (North) → OpenInventory
@@ -112,6 +126,7 @@ impl Plugin for InputPlugin {
 /// - RT (Right trigger axis) → Aim
 fn update_action_input(
     mut action_input: ResMut<ActionInput>,
+    mut stick_nav: ResMut<StickNavState>,
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
 ) {
@@ -142,16 +157,18 @@ fn update_action_input(
     if keys.just_pressed(KeyCode::KeyQ)   { action_input.just_press(GameAction::HotbarPrev); }
     if keys.just_pressed(KeyCode::KeyE)   { action_input.just_press(GameAction::HotbarNext); }
 
-    // --- Gamepad (iterate all connected pads; first input wins via the HashSet) ---
+    // --- Gamepad ---
+    // Accumulate left stick state across all connected pads (any-pad OR logic).
+    let mut new_stick = StickNavState::default();
+
     for gamepad in &gamepads {
-        // Left analog stick → directional movement (held, with dead-zone).
         let stick_x = gamepad.get(GamepadAxis::LeftStickX).unwrap_or(0.0);
         let stick_y = gamepad.get(GamepadAxis::LeftStickY).unwrap_or(0.0);
 
-        if stick_y >  STICK_DEADZONE { action_input.press(GameAction::MoveNorth); }
-        if stick_y < -STICK_DEADZONE { action_input.press(GameAction::MoveSouth); }
-        if stick_x < -STICK_DEADZONE { action_input.press(GameAction::MoveWest); }
-        if stick_x >  STICK_DEADZONE { action_input.press(GameAction::MoveEast); }
+        if stick_y >  STICK_DEADZONE { new_stick.north = true; }
+        if stick_y < -STICK_DEADZONE { new_stick.south = true; }
+        if stick_x < -STICK_DEADZONE { new_stick.west  = true; }
+        if stick_x >  STICK_DEADZONE { new_stick.east  = true; }
 
         // D-pad → directional movement (held + initial press for UI navigation).
         if gamepad.pressed(GamepadButton::DPadUp)    { action_input.press(GameAction::MoveNorth); }
@@ -175,4 +192,27 @@ fn update_action_input(
         if gamepad.just_pressed(GamepadButton::LeftTrigger)  { action_input.just_press(GameAction::HotbarPrev); }
         if gamepad.just_pressed(GamepadButton::RightTrigger) { action_input.just_press(GameAction::HotbarNext); }
     }
+
+    // Apply left stick with threshold-crossing detection.
+    // Fires just_press on the first frame the stick crosses the dead-zone (enabling
+    // single-step UI navigation), then press-only while held.
+    if new_stick.north {
+        if !stick_nav.north { action_input.just_press(GameAction::MoveNorth); }
+        else { action_input.press(GameAction::MoveNorth); }
+    }
+    if new_stick.south {
+        if !stick_nav.south { action_input.just_press(GameAction::MoveSouth); }
+        else { action_input.press(GameAction::MoveSouth); }
+    }
+    if new_stick.west {
+        if !stick_nav.west { action_input.just_press(GameAction::MoveWest); }
+        else { action_input.press(GameAction::MoveWest); }
+    }
+    if new_stick.east {
+        if !stick_nav.east { action_input.just_press(GameAction::MoveEast); }
+        else { action_input.press(GameAction::MoveEast); }
+    }
+
+    // Persist stick state for next frame's crossing detection.
+    *stick_nav = new_stick;
 }
