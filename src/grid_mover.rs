@@ -1,6 +1,8 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use crate::level::LevelTiles;
+
 /// Default walk speed for AI entities in pixels per second.
 const DEFAULT_WALK_SPEED: f32 = 16.0;
 
@@ -112,13 +114,18 @@ impl Plugin for GridMoverPlugin {
 ///
 /// When a movement step completes and a direction is still set (key held), the next step begins
 /// in the same frame — producing seamless continuous movement with no idle frame between cells.
-/// Before committing to a new step, the target tile center is tested against wall colliders using
-/// [`SpatialQuery::point_intersections`]; sensor colliders (e.g. open doors) are passable and
-/// are excluded from the blocked check.
+///
+/// Wall blocking is a two-stage check:
+/// 1. [`LevelTiles`] walkability lookup — O(1) array read, blocks all wall tiles.
+/// 2. [`SpatialQuery::point_intersections`] — detects entity colliders (chests, doors, etc.).
+///    Sensor colliders (e.g. open doors) are passable and excluded from the blocked check.
+///
+/// Wall tiles carry no physics bodies; [`LevelTiles`] is the sole authority for walls.
 fn move_grid_movers(
     time: Res<Time>,
     spatial_query: SpatialQuery,
     sensor_query: Query<(), With<Sensor>>,
+    level: Res<LevelTiles>,
     mut query: Query<(&mut GridMover, &mut Transform)>,
 ) {
     for (mut mover, mut transform) in &mut query {
@@ -142,7 +149,14 @@ fn move_grid_movers(
             let current = snap_to_grid(transform.translation.truncate(), mover.grid_size);
             let potential_target = current + dir.as_vec2() * mover.grid_size;
 
-            // Reject the move if the target tile center contains a solid (non-sensor) collider.
+            // Block movement into wall tiles via the walkability grid (no physics query needed).
+            match level.world_to_tile(potential_target) {
+                Some((tx, ty)) if !level.is_walkable(tx, ty) => continue,
+                None => continue, // Off the map edge.
+                _ => {}
+            }
+
+            // Block movement into solid entity colliders (chests, locked door, spawner, etc.).
             let blocked = spatial_query
                 .point_intersections(potential_target, &SpatialQueryFilter::default())
                 .iter()
