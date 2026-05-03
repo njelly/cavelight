@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::chest::Chest;
-use crate::input::{ActionInput, GameAction};
+use crate::input::{ActionInput, GameAction, InputSource};
 use crate::item::{Inventory, ItemLibrary, ItemStack};
 use crate::player_input::PlayerControlled;
 
@@ -90,6 +90,14 @@ pub struct ActiveChest(pub Option<Entity>);
 #[derive(Resource, Default)]
 pub struct HeldItem(pub Option<ItemStack>);
 
+/// Tracks the slot from which the currently held item was originally picked up.
+///
+/// Set when a pickup begins (slot had an item, `HeldItem` was empty); cleared when
+/// the item is placed. Used by the Cancel action to return the item to its origin
+/// rather than dumping it into the first available slot.
+#[derive(Resource, Default)]
+pub struct HeldItemSource(pub Option<InventorySlotRef>);
+
 /// Tracks the focused inventory slot for keyboard and gamepad navigation.
 ///
 /// Row and column are relative to the panel's [`GRID_ROWS`] × [`GRID_COLS`] grid, except
@@ -143,7 +151,7 @@ struct ChestPanel;
 ///
 /// Present on both the slot background node (has [`Interaction`] for click detection)
 /// and on the icon child node (queried by the icon-sync system).
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub struct InventorySlotRef {
     /// Which inventory this slot belongs to.
     pub panel: InventoryPanel,
@@ -208,6 +216,7 @@ impl Plugin for InventoryPlugin {
         app.init_resource::<InputMode>()
             .init_resource::<ActiveChest>()
             .init_resource::<HeldItem>()
+            .init_resource::<HeldItemSource>()
             .init_resource::<InventoryFocusSlot>()
             .init_resource::<EquippedHotbarSlot>()
             .register_type::<InputMode>()
@@ -700,7 +709,9 @@ fn toggle_inventory(
     mut input_mode: ResMut<InputMode>,
     active_chest: Res<ActiveChest>,
     mut held: ResMut<HeldItem>,
-    mut player_inv: Query<&mut Inventory, With<PlayerControlled>>,
+    mut held_source: ResMut<HeldItemSource>,
+    mut player_inv: Query<&mut Inventory, (With<PlayerControlled>, Without<Chest>)>,
+    mut chest_inv: Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
 ) {
     if !action_input.just_pressed(GameAction::OpenInventory) {
         return;
@@ -708,17 +719,27 @@ fn toggle_inventory(
     match *input_mode {
         InputMode::Playing => *input_mode = InputMode::Inventory,
         InputMode::Inventory if active_chest.0.is_none() => {
-            // Return any item held by the cursor before closing.
-            if let Some(stack) = held.0.take() {
-                if let Ok(mut inv) = player_inv.single_mut() {
-                    if !inv.insert_first_empty(stack.clone()) {
-                        warn!("Inventory full — dropped '{}' on close.", stack.id);
+            // Return any held item to its source slot, or to the first empty slot.
+            if held.0.is_some() {
+                if let Some(source) = held_source.0.take() {
+                    swap_held_with_slot(
+                        source,
+                        &mut player_inv,
+                        &active_chest,
+                        &mut chest_inv,
+                        &mut held,
+                        None,
+                    );
+                } else if let Some(stack) = held.0.take() {
+                    if let Ok(mut inv) = player_inv.single_mut() {
+                        if !inv.insert_first_empty(stack.clone()) {
+                            warn!("Inventory full — dropped '{}' on close.", stack.id);
+                        }
                     }
                 }
             }
             *input_mode = InputMode::Playing;
         }
-        // Jump to the inventory screen from any other menu screen.
         InputMode::Paused | InputMode::Settings => *input_mode = InputMode::Inventory,
         _ => {}
     }
@@ -726,15 +747,18 @@ fn toggle_inventory(
 
 /// Closes the inventory on Cancel (Escape / gamepad B) or X-button click.
 ///
-/// Any held item is returned to the player's first available slot. If the
-/// inventory is full the item is dropped with a warning log.
+/// If an item is currently held, Cancel returns it to its source slot (recorded in
+/// [`HeldItemSource`]) rather than closing the inventory, giving the player a chance
+/// to cancel a swap mid-navigation. A second Cancel (with nothing held) closes normally.
 fn close_inventory(
     action_input: Res<ActionInput>,
     close_btn: Query<&Interaction, With<CloseInventoryButton>>,
     mut input_mode: ResMut<InputMode>,
     mut active_chest: ResMut<ActiveChest>,
     mut held: ResMut<HeldItem>,
-    mut player_inv: Query<&mut Inventory, With<PlayerControlled>>,
+    mut held_source: ResMut<HeldItemSource>,
+    mut player_inv: Query<&mut Inventory, (With<PlayerControlled>, Without<Chest>)>,
+    mut chest_inv: Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
 ) {
     if *input_mode != InputMode::Inventory {
         return;
@@ -747,12 +771,28 @@ fn close_inventory(
         return;
     }
 
-    if let Some(stack) = held.0.take() {
-        if let Ok(mut inv) = player_inv.single_mut() {
-            if !inv.insert_first_empty(stack.clone()) {
-                warn!("Inventory full — dropped '{}' on inventory close.", stack.id);
+    // If holding an item, return it to the source slot rather than closing.
+    if held.0.is_some() {
+        if let Some(source) = held_source.0.take() {
+            swap_held_with_slot(
+                source,
+                &mut player_inv,
+                &active_chest,
+                &mut chest_inv,
+                &mut held,
+                None,
+            );
+        } else {
+            // No source tracked (edge case); fall back to first empty slot.
+            if let Some(stack) = held.0.take() {
+                if let Ok(mut inv) = player_inv.single_mut() {
+                    if !inv.insert_first_empty(stack.clone()) {
+                        warn!("Inventory full — dropped '{}' on cancel.", stack.id);
+                    }
+                }
             }
         }
+        return;
     }
 
     active_chest.0 = None;
@@ -854,6 +894,7 @@ fn handle_slot_click(
     active_chest: Res<ActiveChest>,
     mut chest_inv: Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
     mut held: ResMut<HeldItem>,
+    mut held_source: ResMut<HeldItemSource>,
     item_library: Option<Res<ItemLibrary>>,
 ) {
     if *input_mode != InputMode::Inventory {
@@ -864,6 +905,7 @@ fn handle_slot_click(
         if *interaction != Interaction::Pressed {
             continue;
         }
+        let was_empty = held.0.is_none();
         swap_held_with_slot(
             *slot_ref,
             &mut player_inv,
@@ -872,6 +914,11 @@ fn handle_slot_click(
             &mut held,
             item_library.as_deref(),
         );
+        if was_empty && held.0.is_some() {
+            held_source.0 = Some(*slot_ref);
+        } else if !was_empty {
+            held_source.0 = if held.0.is_some() { Some(*slot_ref) } else { None };
+        }
     }
 }
 
@@ -949,6 +996,7 @@ fn navigate_inventory(
 /// Activates the focused inventory slot when Confirm (Space / gamepad A) is pressed.
 ///
 /// Performs the same held-item swap as a mouse click on the focused slot.
+/// Records [`HeldItemSource`] when picking up and clears it when placing.
 /// Only fires in [`InputMode::Inventory`].
 fn confirm_inventory_slot(
     action_input: Res<ActionInput>,
@@ -958,6 +1006,7 @@ fn confirm_inventory_slot(
     active_chest: Res<ActiveChest>,
     mut chest_inv: Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
     mut held: ResMut<HeldItem>,
+    mut held_source: ResMut<HeldItemSource>,
     item_library: Option<Res<ItemLibrary>>,
 ) {
     if *input_mode != InputMode::Inventory {
@@ -972,6 +1021,8 @@ fn confirm_inventory_slot(
     } else {
         InventorySlotRef { panel: focus.panel, index: focus.row * GRID_COLS + focus.col }
     };
+
+    let was_empty = held.0.is_none();
     swap_held_with_slot(
         slot_ref,
         &mut player_inv,
@@ -980,6 +1031,17 @@ fn confirm_inventory_slot(
         &mut held,
         item_library.as_deref(),
     );
+
+    if was_empty && held.0.is_some() {
+        // Picked up: record the source slot.
+        held_source.0 = Some(slot_ref);
+    } else if !was_empty && held.0.is_none() {
+        // Placed or swapped to empty: clear source.
+        held_source.0 = None;
+    } else if !was_empty && held.0.is_some() {
+        // Swapped two items: new held item still came from this slot.
+        held_source.0 = Some(slot_ref);
+    }
 }
 
 /// Highlights the focused inventory slot with a golden border while [`InputMode::Inventory`] is active.
@@ -1075,13 +1137,21 @@ fn sync_slot_icons(
     }
 }
 
-/// Moves the floating cursor icon to the mouse position and shows the held item texture.
+/// Moves the floating cursor icon to track the held item's position.
+///
+/// - Mouse: follows the cursor position directly.
+/// - Gamepad: snaps to the top-left of the currently focused slot so the icon
+///   visually occupies that slot while the player navigates to the drop target.
 ///
 /// The cursor node has no [`Interaction`] so it never blocks clicks on slots beneath it.
 fn update_held_cursor(
     windows: Query<&Window, With<PrimaryWindow>>,
     held: Res<HeldItem>,
     item_library: Option<Res<ItemLibrary>>,
+    input_source: Res<InputSource>,
+    input_mode: Res<InputMode>,
+    focus: Res<InventoryFocusSlot>,
+    slot_q: Query<(&InventorySlotRef, &UiGlobalTransform, &ComputedNode)>,
     mut cursor_q: Query<(&mut Node, &mut Visibility, &mut ImageNode), With<HeldItemCursor>>,
 ) {
     let Ok((mut node, mut vis, mut img)) = cursor_q.single_mut() else { return };
@@ -1091,10 +1161,32 @@ fn update_held_cursor(
         return;
     };
 
-    if let Ok(window) = windows.single() {
-        if let Some(pos) = window.cursor_position() {
-            node.left = Val::Px(pos.x);
-            node.top = Val::Px(pos.y);
+    match *input_source {
+        InputSource::Gamepad if *input_mode == InputMode::Inventory => {
+            // Find the focused slot and snap the icon to its top-left corner.
+            let target_ref = if focus.in_hotbar {
+                InventorySlotRef { panel: InventoryPanel::Player, index: HOTBAR_START + focus.col }
+            } else {
+                InventorySlotRef { panel: focus.panel, index: focus.row * GRID_COLS + focus.col }
+            };
+
+            let slot = slot_q.iter().find(|(sr, _, _)| **sr == target_ref);
+            if let Some((_, ui_tf, computed)) = slot {
+                let top_left_physical = ui_tf.affine().translation;
+                let inv_scale = computed.inverse_scale_factor();
+                let top_left = top_left_physical * inv_scale;
+                node.left = Val::Px(top_left.x);
+                node.top  = Val::Px(top_left.y);
+            }
+        }
+        _ => {
+            // Mouse: follow the cursor.
+            if let Ok(window) = windows.single() {
+                if let Some(pos) = window.cursor_position() {
+                    node.left = Val::Px(pos.x);
+                    node.top  = Val::Px(pos.y);
+                }
+            }
         }
     }
 

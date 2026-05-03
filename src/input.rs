@@ -6,6 +6,20 @@ use bevy::prelude::*;
 /// Analog axis dead-zone — stick values below this magnitude are treated as zero.
 const STICK_DEADZONE: f32 = 0.5;
 
+/// Tracks which input device produced the most recent significant input.
+///
+/// Updated every frame by [`update_action_input`]. Systems that need to switch
+/// between mouse-driven and gamepad-driven UI (aim indicator, inventory cursor)
+/// should read this resource rather than polling devices directly.
+#[derive(Resource, Default, PartialEq, Eq, Clone, Copy, Debug)]
+pub enum InputSource {
+    /// Last input came from keyboard or mouse.
+    #[default]
+    KeyboardMouse,
+    /// Last input came from a gamepad.
+    Gamepad,
+}
+
 /// Tracks whether the left analog stick was past the dead-zone threshold last frame,
 /// per cardinal direction.
 ///
@@ -104,6 +118,7 @@ impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActionInput>()
             .init_resource::<StickNavState>()
+            .init_resource::<InputSource>()
             // Must run after InputSystems so the Gamepad component has been updated
             // by bevy_gilrs for the current frame before we read it.
             .add_systems(PreUpdate, update_action_input.after(InputSystems));
@@ -127,7 +142,9 @@ impl Plugin for InputPlugin {
 fn update_action_input(
     mut action_input: ResMut<ActionInput>,
     mut stick_nav: ResMut<StickNavState>,
+    mut input_source: ResMut<InputSource>,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
 ) {
     action_input.clear();
@@ -180,9 +197,12 @@ fn update_action_input(
         if gamepad.just_pressed(GamepadButton::DPadLeft)  { action_input.just_press(GameAction::MoveWest); }
         if gamepad.just_pressed(GamepadButton::DPadRight) { action_input.just_press(GameAction::MoveEast); }
 
-        // Right trigger (analog axis, RT) → aim hold.
-        let rt = gamepad.get(GamepadAxis::RightZ).unwrap_or(0.0);
-        if rt > STICK_DEADZONE { action_input.press(GameAction::Aim); }
+        // Right trigger → aim hold.
+        // PS5 reports R2 as RightTrigger2 (digital button); Xbox reports it as RightZ (analog axis).
+        let rt_axis = gamepad.get(GamepadAxis::RightZ).unwrap_or(0.0);
+        if rt_axis > STICK_DEADZONE || gamepad.pressed(GamepadButton::RightTrigger2) {
+            action_input.press(GameAction::Aim);
+        }
 
         // Face buttons and shoulders → just pressed actions.
         if gamepad.just_pressed(GamepadButton::South)        { action_input.just_press(GameAction::Confirm); }
@@ -215,4 +235,30 @@ fn update_action_input(
 
     // Persist stick state for next frame's crossing detection.
     *stick_nav = new_stick;
+
+    // --- Detect active input source ---
+    // Switch to Gamepad when any significant gamepad input is seen; switch back to
+    // KeyboardMouse when any key or mouse button is pressed. Only switches on activity
+    // so the source stays stable between inputs.
+    let gamepad_active = gamepads.iter().any(|gp| {
+        let lx = gp.get(GamepadAxis::LeftStickX).unwrap_or(0.0).abs();
+        let ly = gp.get(GamepadAxis::LeftStickY).unwrap_or(0.0).abs();
+        let rx = gp.get(GamepadAxis::RightStickX).unwrap_or(0.0).abs();
+        let ry = gp.get(GamepadAxis::RightStickY).unwrap_or(0.0).abs();
+        let rz = gp.get(GamepadAxis::RightZ).unwrap_or(0.0);
+        let stick_moved = lx > STICK_DEADZONE || ly > STICK_DEADZONE
+            || rx > STICK_DEADZONE || ry > STICK_DEADZONE
+            || rz > STICK_DEADZONE;
+        let btn_pressed = gp.get_just_pressed().next().is_some()
+            || gp.pressed(GamepadButton::RightTrigger2);
+        stick_moved || btn_pressed
+    });
+    let kb_active = keys.get_just_pressed().next().is_some()
+        || mouse_buttons.get_just_pressed().next().is_some();
+
+    if gamepad_active {
+        *input_source = InputSource::Gamepad;
+    } else if kb_active {
+        *input_source = InputSource::KeyboardMouse;
+    }
 }
