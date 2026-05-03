@@ -4,6 +4,7 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 
 use crate::aim::AimState;
+use crate::damageable::Damageable;
 use crate::input::{ActionInput, GameAction};
 use crate::inventory::{EquippedHotbarSlot, InputMode, HOTBAR_START};
 use crate::item::{Inventory, ItemLibrary};
@@ -23,6 +24,12 @@ const MIN_ARROW_SPEED: f32 = 50.0;
 
 /// Arrow flight speed at full charge, in pixels per second.
 const MAX_ARROW_SPEED: f32 = 160.0;
+
+/// Damage dealt by an arrow at zero charge.
+const MIN_ARROW_DAMAGE: u32 = 3;
+
+/// Damage dealt by an arrow at full charge.
+const MAX_ARROW_DAMAGE: u32 = 9;
 
 /// Maximum distance from the player center (squared) to auto-pick-up a landed arrow.
 ///
@@ -80,6 +87,10 @@ pub enum ArrowState {
         total_distance: f32,
         /// Arc apex height (pixels) for this shot — scales with charge.
         arc_height: f32,
+        /// Damage dealt to the first [`Damageable`] this arrow hits, baked in at fire
+        /// time so the value reflects the charge level when the shot was loosed
+        /// (rather than the aim state at the moment of impact).
+        damage: u32,
         /// Entity that fired the arrow. Excluded from collision so the arrow does
         /// not immediately hit its own shooter at the spawn position.
         shooter: Entity,
@@ -151,6 +162,9 @@ fn fire_arrow(
     let velocity = direction * speed;
     let total_distance = speed * ARROW_FLIGHT_SECONDS;
     let arc_height = ARC_PEAK_MIN + (ARC_PEAK_MAX - ARC_PEAK_MIN) * charge;
+    // Damage scales linearly with charge so timing the release rewards a stronger hit.
+    let damage = MIN_ARROW_DAMAGE
+        + ((MAX_ARROW_DAMAGE - MIN_ARROW_DAMAGE) as f32 * charge).round() as u32;
 
     let player_pos = player_tf.translation.truncate();
     let spawn_pos = player_pos + direction * ARROW_SPAWN_OFFSET;
@@ -170,6 +184,7 @@ fn fire_arrow(
                     distance_remaining: total_distance,
                     total_distance,
                     arc_height,
+                    damage,
                     shooter,
                 },
             },
@@ -286,6 +301,7 @@ fn fly_arrows(
     mut arrows: Query<(&mut Arrow, &mut Transform, &Children), Without<ArrowVisual>>,
     mut visual_query: Query<&mut Transform, With<ArrowVisual>>,
     mut shadow_query: Query<&mut Visibility, With<ArrowShadow>>,
+    mut damageables: Query<&mut Damageable>,
 ) {
     let Some(level) = level else { return };
     let dt = time.delta_secs();
@@ -297,6 +313,7 @@ fn fly_arrows(
             mut distance_remaining,
             total_distance,
             arc_height,
+            damage,
             shooter,
         } = arrow.state
         {
@@ -311,14 +328,25 @@ fn fly_arrows(
                 None => true,
             };
 
-            // Solid entity hit: any non-sensor collider that isn't the shooter.
+            // Solid entity hit: the first non-sensor collider that isn't the shooter.
+            // We capture the entity (rather than just a `bool`) so we can apply damage
+            // to it if it is a [`Damageable`].
             let filter = SpatialQueryFilter::default().with_excluded_entities([shooter]);
-            let blocked_by_entity = spatial_query
+            let hit_entity = spatial_query
                 .point_intersections(new_pos, &filter)
                 .iter()
-                .any(|&e| !sensor_query.contains(e));
+                .copied()
+                .find(|&e| !sensor_query.contains(e));
 
-            if blocked_by_wall || blocked_by_entity {
+            if blocked_by_wall || hit_entity.is_some() {
+                // Apply damage to a Damageable target before landing. The arrow itself
+                // still lands at `prev_pos` (matching the existing behavior the player
+                // expects — arrows can be picked back up after a hit).
+                if let Some(target) = hit_entity {
+                    if let Ok(mut d) = damageables.get_mut(target) {
+                        d.take(damage);
+                    }
+                }
                 // Land at the previous position so the arrow does not visually overlap the wall.
                 transform.translation = prev_pos.extend(transform.translation.z);
                 arrow.state = ArrowState::Landed;
@@ -333,6 +361,7 @@ fn fly_arrows(
                         distance_remaining,
                         total_distance,
                         arc_height,
+                        damage,
                         shooter,
                     };
                 }

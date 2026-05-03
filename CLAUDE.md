@@ -17,18 +17,21 @@ cavelight/
 │   ├── atlas_8x8.png               # 512x512 sprite atlas of 8x8 sprites for characters and dynamic objects.
 │   ├── sprite_animations.ron       # Animation library: maps animation names to frame index lists and fps.
 │   ├── item_definitions.ron        # Item definitions: id, display_name, icon_path, max_stack per item type.
+│   ├── entity_definitions.ron      # Entity definitions: id, display_name, toughness per entity type.
 │   ├── dialogues.ron               # Dialogue definitions: id and ordered pages array per dialogue entry.
 │   ├── item_icons/                 # PNG icons for item types (Dagger_01.png, Arrow_01.png, Bow_01.png).
 │   └── fonts/                      # RobotoMono font family (all weights/styles)
 ├── src/
 │   ├── main.rs                     # Entry point; app setup and plugin registration. Spawns player with PlayerLantern child light.
 │   ├── aim.rs                      # AimPlugin — bow aim indicator, charge fill, and bow overlay; writes AimState resource (active, charge, direction, origin) for the shooting system.
-│   ├── arrow.rs                    # ArrowPlugin — Shoot action consumes ammo and spawns Arrow projectiles (speed/range scale with charge); arrows fly until they hit a wall/entity, then land and can be picked up by walking onto them.
+│   ├── arrow.rs                    # ArrowPlugin — Shoot action consumes ammo and spawns Arrow projectiles (speed/range/damage scale with charge); arrows fly until they hit a wall/entity, applying damage to a Damageable target, then land and can be picked up by walking onto them.
 │   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera with Light2d ambient lighting.
 │   ├── campfire.rs                 # CampfirePlugin — campfire sprite+animation at CampfireSpawnPoint; CampfireFlicker drives flickering PointLight2d child.
 │   ├── chest.rs                    # ChestPlugin — two chests: WeaponChest (bow+arrows) at WeaponChestSpawnPoint, KeyChest (key) at KeyChestSpawnPoint. Shared observer opens inventory UI on interaction.
+│   ├── damageable.rs               # DamageablePlugin — Damageable component (toughness, damage, display_name). Spawns floating health-bar + name-label children that appear once damaged. Despawns dead entities with a death PulseFx.
 │   ├── dialogue.rs                 # DialoguePlugin — RON-driven dialogue system. DialogueSource component, DialogueLibrary resource, bottom-of-screen panel UI, Space-to-advance page model. ActiveDialogue::open() for runtime dialogue without a DialogueSource.
 │   ├── door.rs                     # DoorPlugin — LockedDoor entity at LockedDoorSpawnPoint. Interaction checks player inventory for a key: consumes it and opens the door, or shows a "locked" dialogue if no key found.
+│   ├── entity.rs                   # EntityPlugin — EntityDef/EntityDefList (RON asset), EntityLibrary resource. Loads entity_definitions.ron; provides per-id Damageable construction for spawn helpers.
 │   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
 │   ├── interaction.rs              # InteractionPlugin — Interactable marker, InteractEvent trigger, InteractionSet system set. Space press fires InteractEvent; gated on InputMode::Playing.
 │   ├── interaction_reticle.rs      # InteractionReticlePlugin — tile-highlight square that shows the player's facing tile. Space fades it in; it fades out 1s after last press. Orbits to new facing on direction change.
@@ -41,7 +44,7 @@ cavelight/
 │   ├── player_input.rs             # PlayerInputPlugin — keyboard input, Facing component, sprite flipping. PlayerControlled + PlayerInput + Facing; bridges to GridMover. Gated on InputMode::Playing.
 │   ├── save.rs                     # SavePlugin — single-slot save/load to <data_dir>/cavelight/saves/<slot>/save.ron (slot 0 today; path is slot-indexed for future multi-slot). PreStartup loads and inserts LoadedSave (skipping level gen on hit), PostStartup applies snapshot to player/chests/door/NPC and spawns skeletons + landed arrows. Save & Quit emits SaveAndExitRequested; process_save_and_exit serializes RON, then writes AppExit.
 │   ├── signpost.rs                 # SignpostPlugin — static Interactable signpost at SignpostSpawnPoint; RigidBody + Collider; DialogueSource wired to "signpost_welcome" dialogue.
-│   ├── skeleton.rs                 # SkeletonPlugin — Skeleton enemy; observer on SpawnRequested spawns skeleton with GoapAgent(Goal::Wander)+GridMover (speed=16) and a PulseFx entity for spawn-in effect.
+│   ├── skeleton.rs                 # SkeletonPlugin — Skeleton enemy; observer on SpawnRequested spawns skeleton with GoapAgent(Goal::Wander)+GridMover, a Damageable (pulled from EntityLibrary), and a PulseFx entity for spawn-in effect.
 │   ├── spawner.rs                  # SpawnerPlugin — Spawner component (interval-based, capacity-capped); SpawnRequested trigger; SpawnedBy tag; SpawnerSpin spin-on-spawn effect; PulseFx despawn system.
 │   ├── sprite_animation.rs         # SpriteAnimationPlugin — loads sprite_animations.ron and drives SpriteAnimation components.
 │   ├── wander.rs                   # Pathfinding utilities: astar(), cardinal_neighbors(), pick_random_walkable_in_radius(). No plugin — pure functions used by goap.rs and spawner.rs.
@@ -81,6 +84,16 @@ Do not duplicate or repeat the same logic in different locations in the codebase
 
 Agents should always fix any warnings or errors or broken tests when they are encountered, including those that are pre-existing.
 
-## Documentation
+## Tools
 
-Use the local, built in documentation when researching Bevy and other crate APIs rather than looking for online documentation.
+A `rust-analyzer` MCP server is available. Prefer it over `grep`/`find` for symbol-level questions:
+
+- `hover(file, line, char)` — rendered rustdoc + signature for any symbol, including Bevy and other third-party crates. Use this instead of searching online docs.
+- `references(file, line, char)` — every call site of a symbol across the workspace. Use before renames or refactors.
+- `diagnostics(file)` — per-file errors/warnings/hints. Faster than `cargo check` for quick pre-flight on a file you just edited.
+- `symbols(file)` — map of an unfamiliar file at a glance.
+- `definition` / `completion` / `code_actions` / `format` are also available.
+
+Call `set_workspace("/Users/nathaniel/Documents/cavelight")` once per session before the first query.
+
+Skip `workspace_diagnostics` — it's broken in the wrapper. Loop `diagnostics(file)` over the files you care about instead.

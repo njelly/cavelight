@@ -33,7 +33,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::arrow::{spawn_landed_arrow_entity, Arrow, ArrowState, ArrowVisual};
 use crate::chest::{Chest, KeyChest, WeaponChest};
+use crate::damageable::Damageable;
 use crate::door::LockedDoor;
+use crate::entity::EntityLibrary;
 use crate::inventory::EquippedHotbarSlot;
 use crate::item::{Inventory, ItemStack};
 use crate::level::{
@@ -240,6 +242,11 @@ pub struct NpcSnapshot {
 pub struct SkeletonSnapshot {
     pub pos: [f32; 2],
     pub flip_x: bool,
+    /// Accumulated damage when the save was written. Restored onto the spawned
+    /// skeleton's [`Damageable`] so a wounded enemy stays wounded across save/load.
+    /// Defaults to `0` for older save files written before HP was tracked.
+    #[serde(default)]
+    pub damage: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -390,6 +397,7 @@ fn apply_loaded_save(
         (With<Npc>, Without<PlayerControlled>, Without<Chest>, Without<LockedDoor>),
     >,
     spawner: Query<Entity, With<Spawner>>,
+    entity_library: Option<Res<EntityLibrary>>,
 ) {
     let Some(loaded) = loaded else { return };
     // Move the snapshot out of the resource so we can consume owned fields.
@@ -461,16 +469,33 @@ fn apply_loaded_save(
     // --- Skeletons ---
     let spawner_entity = spawner.iter().next();
     if let Some(spawner_entity) = spawner_entity {
+        let library = entity_library.as_deref();
         for snap in skeletons {
             let pos = Vec2::new(snap.pos[0], snap.pos[1]);
-            let entity = spawn_skeleton_entity(&mut commands, &asset_server, &mut layouts, pos, spawner_entity);
-            if snap.flip_x {
-                commands.queue(move |world: &mut World| {
+            let entity = spawn_skeleton_entity(
+                &mut commands,
+                &asset_server,
+                &mut layouts,
+                library,
+                pos,
+                spawner_entity,
+            );
+            // Restore wounded HP after the entity is materialised. We can't mutate
+            // the [`Damageable`] inline because the spawn is queued via [`Commands`].
+            let damage = snap.damage;
+            let flip_x = snap.flip_x;
+            commands.queue(move |world: &mut World| {
+                if flip_x {
                     if let Some(mut sprite) = world.get_mut::<Sprite>(entity) {
                         sprite.flip_x = true;
                     }
-                });
-            }
+                }
+                if damage > 0 {
+                    if let Some(mut d) = world.get_mut::<Damageable>(entity) {
+                        d.damage = damage;
+                    }
+                }
+            });
         }
     } else if !skeletons.is_empty() {
         warn!("Loaded save contains skeletons but no Spawner entity exists — skeletons skipped.");
@@ -552,7 +577,7 @@ struct WorldSnapshotQueries<'w, 's> {
     skeletons: Query<
         'w,
         's,
-        (&'static Transform, &'static Sprite),
+        (&'static Transform, &'static Sprite, Option<&'static Damageable>),
         (With<Skeleton>, Without<PlayerControlled>, Without<Npc>),
     >,
     arrows: Query<
@@ -678,9 +703,10 @@ fn build_save_data(
     let skeletons_out: Vec<SkeletonSnapshot> = queries
         .skeletons
         .iter()
-        .map(|(tf, sprite)| SkeletonSnapshot {
+        .map(|(tf, sprite, damageable)| SkeletonSnapshot {
             pos: [tf.translation.x, tf.translation.y],
             flip_x: sprite.flip_x,
+            damage: damageable.map(|d| d.damage).unwrap_or(0),
         })
         .collect();
 
@@ -793,7 +819,11 @@ impl SaveData {
             }).collect(),
             door: self.door.as_ref().map(|d| DoorSnapshot { locked: d.locked, is_open: d.is_open }),
             npc: self.npc.as_ref().map(|n| NpcSnapshot { pos: n.pos, flip_x: n.flip_x }),
-            skeletons: self.skeletons.iter().map(|s| SkeletonSnapshot { pos: s.pos, flip_x: s.flip_x }).collect(),
+            skeletons: self.skeletons.iter().map(|s| SkeletonSnapshot {
+                pos: s.pos,
+                flip_x: s.flip_x,
+                damage: s.damage,
+            }).collect(),
             arrows: self.arrows.iter().map(|a| ArrowSnapshot { pos: a.pos, rotation_z: a.rotation_z }).collect(),
         }
     }

@@ -5,8 +5,10 @@ mod arrow;
 mod camera;
 mod campfire;
 mod chest;
+mod damageable;
 mod dialogue;
 mod door;
+mod entity;
 mod fps_counter;
 mod goap;
 mod grid_mover;
@@ -27,7 +29,12 @@ mod spawner;
 mod sprite_animation;
 mod wander;
 
+use std::collections::HashSet;
+
+use bevy::asset::AssetId;
+use bevy::image::ImageSampler;
 use bevy::prelude::*;
+use bevy::text::FontAtlasSet;
 
 use avian2d::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
@@ -38,8 +45,10 @@ use arrow::ArrowPlugin;
 use camera::CameraPlugin;
 use campfire::CampfirePlugin;
 use chest::ChestPlugin;
+use damageable::DamageablePlugin;
 use dialogue::DialoguePlugin;
 use door::DoorPlugin;
+use entity::EntityPlugin;
 use fps_counter::FpsCounterPlugin;
 use grid_mover::{GridMover, GridMoverPlugin};
 use input::InputPlugin;
@@ -111,8 +120,10 @@ fn main() {
                 CameraPlugin,
                 CampfirePlugin,
                 ChestPlugin,
+                DamageablePlugin,
                 DialoguePlugin,
                 DoorPlugin,
+                EntityPlugin,
                 FpsCounterPlugin,
                 GridMoverPlugin,
                 InteractionPlugin,
@@ -138,8 +149,40 @@ fn main() {
         .register_type::<PlayerLantern>()
         .insert_gizmo_config(PhysicsGizmos::default(), GizmoConfig { enabled: false, ..default() })
         .add_systems(Startup, spawn_player)
-        .add_systems(Update, (toggle_physics_debug, toggle_world_inspector))
+        .add_systems(Update, (toggle_physics_debug, toggle_world_inspector, ensure_font_atlas_linear))
         .run();
+}
+
+/// Switches each newly-rasterised font-atlas texture from nearest to linear sampling.
+///
+/// The project uses [`bevy::image::ImagePlugin::default_nearest`] for crisp pixel-art
+/// sprites, but that same default applies to font atlases — making world-space
+/// [`Text2d`] glyphs (e.g. the [`crate::damageable::NameLabel`] above damaged enemies)
+/// staircase visibly when the camera scales them. Glyphs are AA-rasterised into the
+/// atlas at logical font size; linear filtering gives smooth scaling. UI text renders
+/// at 1:1 pixel size, so the change has no visible effect there.
+///
+/// Font atlases that opt into [`bevy::text::FontSmoothing::None`] explicitly set
+/// nearest themselves at creation, which we leave untouched (their `sampler` is
+/// `Descriptor(...)`, not `Default`).
+fn ensure_font_atlas_linear(
+    font_atlas_set: Res<FontAtlasSet>,
+    mut images: ResMut<Assets<Image>>,
+    mut patched: Local<HashSet<AssetId<Image>>>,
+) {
+    for atlases in font_atlas_set.values() {
+        for atlas in atlases {
+            let id = atlas.texture.id();
+            if !patched.insert(id) {
+                continue;
+            }
+            if let Some(image) = images.get_mut(&atlas.texture) {
+                if matches!(image.sampler, ImageSampler::Default) {
+                    image.sampler = ImageSampler::linear();
+                }
+            }
+        }
+    }
 }
 
 /// Toggles the egui world inspector panel on/off with F2.

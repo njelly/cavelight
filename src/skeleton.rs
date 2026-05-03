@@ -1,11 +1,23 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use crate::damageable::Damageable;
+use crate::entity::EntityLibrary;
 use crate::goap::GoapAgent;
 use crate::grid_mover::GridMover;
 use crate::spawner::{PulseFx, SpawnRequested, SpawnType, SpawnedBy};
 use crate::sprite_animation::SpriteAnimation;
 use crate::GRID_SIZE;
+
+/// Entity-def id used to look up the skeleton's [`Damageable`] in the [`EntityLibrary`].
+const SKELETON_ID: &str = "skeleton";
+
+/// Fallback toughness used when the [`EntityLibrary`] has not yet finished loading
+/// (e.g. during PostStartup save-restore). Should match `entity_definitions.ron`.
+const SKELETON_FALLBACK_TOUGHNESS: u32 = 20;
+
+/// Fallback display name used in the same scenario as [`SKELETON_FALLBACK_TOUGHNESS`].
+const SKELETON_FALLBACK_NAME: &str = "Skeleton";
 
 // ---------------------------------------------------------------------------
 // Components
@@ -46,13 +58,21 @@ fn spawn_skeletons(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+    entity_library: Option<Res<EntityLibrary>>,
 ) {
     let ev = event.event();
     if !matches!(ev.spawn_type, SpawnType::Skeleton) {
         return;
     }
 
-    spawn_skeleton_entity(&mut commands, &asset_server, &mut layouts, ev.position, ev.spawner);
+    spawn_skeleton_entity(
+        &mut commands,
+        &asset_server,
+        &mut layouts,
+        entity_library.as_deref(),
+        ev.position,
+        ev.spawner,
+    );
 
     let pulse_layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let pulse_layout_handle = layouts.add(pulse_layout);
@@ -78,7 +98,13 @@ fn spawn_skeletons(
 /// Used both by the [`SpawnRequested`] observer and by the save-load system. Returns the
 /// new [`Entity`] so callers can attach extra components (e.g. visual effects).
 ///
+/// `library` is consulted for the [`Damageable`] (display name + base toughness).
+/// When it is `None` (e.g. during PostStartup save-restore, before the asset has
+/// finished loading) the function falls back to hardcoded values matching
+/// `entity_definitions.ron`.
+///
 /// Each skeleton has:
+/// - A [`Damageable`] so arrows can hurt and eventually kill it.
 /// - A [`GoapAgent`] wander controller (smaller radius and longer idle pauses than the NPC).
 /// - A [`GridMover`] at half the NPC's speed (`10.0 px/s`).
 /// - A [`SpawnedBy`] tag so the origin spawner can count active instances.
@@ -86,6 +112,7 @@ pub fn spawn_skeleton_entity(
     commands: &mut Commands,
     asset_server: &AssetServer,
     layouts: &mut Assets<TextureAtlasLayout>,
+    library: Option<&EntityLibrary>,
     position: Vec2,
     spawner: Entity,
 ) -> Entity {
@@ -94,9 +121,14 @@ pub fn spawn_skeleton_entity(
 
     let mover = GridMover::new(GRID_SIZE).with_walk_speed(10.0);
 
+    let damageable = library
+        .and_then(|l| l.damageable(SKELETON_ID))
+        .unwrap_or_else(|| Damageable::new(SKELETON_FALLBACK_TOUGHNESS, SKELETON_FALLBACK_NAME));
+
     commands.spawn((
         Skeleton,
         SpawnedBy(spawner),
+        damageable,
         Sprite::from_atlas_image(
             asset_server.load("atlas_8x8.png"),
             TextureAtlas {

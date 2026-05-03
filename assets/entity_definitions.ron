@@ -1,0 +1,7 @@
+[
+    (
+        id: "skeleton",
+        display_name: "Skeleton",
+        toughness: 20,
+    ),
+]
