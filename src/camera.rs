@@ -18,7 +18,10 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_camera)
-            .add_systems(Update, follow_player);
+            // PostUpdate ensures the camera reads the player's final position for this frame,
+            // after all Update systems (including GridMoverSet) have moved the player.
+            // Running in Update with no ordering guarantee causes a one-frame lag stutter.
+            .add_systems(PostUpdate, follow_player);
     }
 }
 
