@@ -2,9 +2,7 @@ mod generator;
 mod tile;
 
 pub use generator::DoorOrientation;
-pub use tile::Tile;
 
-use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -170,8 +168,7 @@ pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<Tile>()
-            .add_systems(PreStartup, spawn_level);
+        app.add_systems(PreStartup, spawn_level);
     }
 }
 
@@ -219,28 +216,23 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
                 }
             }
 
-            // Walls get a static rigid body so the player cannot walk through them.
-            // Only walls adjacent to at least one floor tile get a LightOccluder2d —
-            // deep interior walls (surrounded entirely by other walls) are never
-            // reachable by a light ray from the cave floor, so they don't need one.
-            // This keeps the occluder count proportional to cave perimeter rather than
-            // total wall area, which is critical for shadow-rendering performance.
+            // Only boundary walls (those adjacent to at least one floor tile) need
+            // to exist as entities — solely to carry LightOccluder2d for shadow casting.
+            // Interior walls are fully represented by LevelTiles and need no entity.
+            // Wall movement collision is handled in GridMover via LevelTiles lookup,
+            // so no physics bodies are needed on wall tiles at all.
             if tile_type == TileType::Wall {
-                let pos = tile_to_world(x, y, map.width, map.height);
                 let is_boundary = borders_floor(&map.tiles, map.width, map.height, x, y);
-
-                let mut entity = commands.spawn((
-                    Transform::from_xyz(pos.x, pos.y, 0.0),
-                    RigidBody::Static,
-                    Collider::rectangle(TILE_SIZE, TILE_SIZE),
-                    Tile,
-                ));
                 if is_boundary {
-                    entity.insert(LightOccluder2d {
-                        shape: LightOccluder2dShape::Rectangle {
-                            half_size: Vec2::splat(TILE_SIZE / 2.0),
+                    let pos = tile_to_world(x, y, map.width, map.height);
+                    commands.spawn((
+                        Transform::from_xyz(pos.x, pos.y, 0.0),
+                        LightOccluder2d {
+                            shape: LightOccluder2dShape::Rectangle {
+                                half_size: Vec2::splat(TILE_SIZE / 2.0),
+                            },
                         },
-                    });
+                    ));
                 }
             }
         }
