@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::app::AppExit;
 use bevy::ecs::message::MessageWriter;
 use avian2d::prelude::PhysicsGizmos;
 
@@ -7,6 +6,7 @@ use crate::input::{ActionInput, GameAction};
 use crate::inventory::{ActiveChest, HeldItem, InputMode};
 use crate::item::Inventory;
 use crate::player_input::PlayerControlled;
+use crate::save::SaveAndExitRequested;
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -625,14 +625,14 @@ fn handle_pause_confirm(
     mut input_mode: ResMut<InputMode>,
     focus: Res<PauseFocusIndex>,
     buttons: Query<&PauseButton>,
-    mut exit: MessageWriter<AppExit>,
+    mut save_exit: MessageWriter<SaveAndExitRequested>,
 ) {
     if *input_mode != InputMode::Paused || !action_input.just_pressed(GameAction::Confirm) {
         return;
     }
     for btn in &buttons {
         if btn.index == focus.0 {
-            execute_pause_action(btn.action, &mut input_mode, &mut exit);
+            execute_pause_action(btn.action, &mut input_mode, &mut save_exit);
             return;
         }
     }
@@ -643,14 +643,14 @@ fn handle_pause_button_interaction(
     mut buttons: Query<(&Interaction, &PauseButton), Changed<Interaction>>,
     mut input_mode: ResMut<InputMode>,
     mut focus: ResMut<PauseFocusIndex>,
-    mut exit: MessageWriter<AppExit>,
+    mut save_exit: MessageWriter<SaveAndExitRequested>,
 ) {
     for (interaction, btn) in &mut buttons {
         match *interaction {
             Interaction::Hovered => focus.0 = btn.index,
             Interaction::Pressed => {
                 focus.0 = btn.index;
-                execute_pause_action(btn.action, &mut input_mode, &mut exit);
+                execute_pause_action(btn.action, &mut input_mode, &mut save_exit);
             }
             _ => {}
         }
@@ -676,15 +676,19 @@ fn sync_pause_button_styles(
     }
 }
 
-/// Executes the given pause-menu action, mutating mode or sending an exit event.
+/// Executes the given pause-menu action, mutating mode or requesting a save-and-exit.
+///
+/// Save & Quit sends a [`SaveAndExitRequested`] message rather than writing
+/// [`bevy::app::AppExit`] directly — `crate::save::process_save_and_exit` performs
+/// the disk write and then issues the actual exit.
 fn execute_pause_action(
     action: PauseAction,
     input_mode: &mut ResMut<InputMode>,
-    exit: &mut MessageWriter<AppExit>,
+    save_exit: &mut MessageWriter<SaveAndExitRequested>,
 ) {
     match action {
         PauseAction::Continue    => **input_mode = InputMode::Playing,
-        PauseAction::SaveAndQuit => { exit.write(AppExit::Success); }
+        PauseAction::SaveAndQuit => { save_exit.write(SaveAndExitRequested); }
     }
 }
 

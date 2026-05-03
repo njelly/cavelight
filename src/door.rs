@@ -30,6 +30,13 @@ pub struct LockedDoor {
     open_animation: &'static str,
 }
 
+impl LockedDoor {
+    /// Returns the animation name played when the door is closed.
+    pub fn closed_anim(&self) -> &'static str { self.closed_animation }
+    /// Returns the animation name played when the door is open.
+    pub fn open_anim(&self) -> &'static str { self.open_animation }
+}
+
 /// Spawns the locked door and registers its interaction observer.
 pub struct DoorPlugin;
 

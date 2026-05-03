@@ -11,6 +11,8 @@ use rand::thread_rng;
 
 use generator::generate_level1;
 
+use crate::save::{LoadedSave, SaveLoadSet};
+
 // ---------------------------------------------------------------------------
 // Seed utilities
 // ---------------------------------------------------------------------------
@@ -129,6 +131,16 @@ impl LevelTiles {
         self.walkable[y * self.width + x] = false;
     }
 
+    /// Returns the level width in tiles.
+    pub fn width(&self) -> usize { self.width }
+
+    /// Returns the level height in tiles.
+    pub fn height(&self) -> usize { self.height }
+
+    /// Returns a clone of the row-major walkability vector — used by the save system
+    /// to persist the generated level geometry.
+    pub fn walkable_vec(&self) -> Vec<bool> { self.walkable.clone() }
+
     /// Returns `true` if tile `(x, y)` is passable. Out-of-bounds always returns `false`.
     pub fn is_walkable(&self, x: usize, y: usize) -> bool {
         if x >= self.width || y >= self.height {
@@ -168,7 +180,8 @@ pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, spawn_level);
+        // Runs after [`SaveLoadSet`] so [`LoadedSave`] is available when present.
+        app.add_systems(PreStartup, spawn_level.after(SaveLoadSet));
     }
 }
 
@@ -176,15 +189,25 @@ impl Plugin for LevelPlugin {
 // Startup system
 // ---------------------------------------------------------------------------
 
-/// Generates the cave map, builds a single tilemap texture, and inserts all level resources.
+/// Generates the cave map (or restores it from a [`LoadedSave`]), builds a single tilemap
+/// texture, and inserts all level resources.
 ///
 /// The entire floor/wall visual is written into one [`Image`] and rendered as a single sprite,
 /// avoiding per-tile draw calls. Wall tiles also get invisible [`LightOccluder2d`] entities so
 /// they cast shadows when `bevy_light_2d` point lights are present.
-fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    let seed = resolve_seed();
-    info!("Level seed: {seed} — rerun with `--seed {seed}` to reproduce this layout.");
-    let map = generate_level1(LEVEL_WIDTH, LEVEL_HEIGHT, seed);
+fn spawn_level(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    loaded: Option<Res<LoadedSave>>,
+) {
+    let map = if let Some(loaded) = loaded.as_ref() {
+        info!("Restoring level from saved snapshot.");
+        map_from_save(&loaded.0.level)
+    } else {
+        let seed = resolve_seed();
+        info!("Level seed: {seed} — rerun with `--seed {seed}` to reproduce this layout.");
+        generate_level1(LEVEL_WIDTH, LEVEL_HEIGHT, seed)
+    };
     let mut rng = thread_rng();
 
     let img_w = LEVEL_WIDTH * TILE_SIZE as usize;
@@ -280,6 +303,36 @@ fn spawn_level(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 
     // Suppress unused variable warning — rng is used only for tile colors.
     let _ = rng;
+}
+
+/// Reconstructs a [`generator::MapData`] from a saved [`crate::save::LevelSnapshot`].
+///
+/// Mirrors [`generate_level1`] for the downstream consumers: tile array, room metadata,
+/// and spawn point coordinates are all read straight from the snapshot rather than
+/// re-running random generation.
+fn map_from_save(snap: &crate::save::LevelSnapshot) -> generator::MapData {
+    let tiles: Vec<tile::TileType> = snap
+        .walkable
+        .iter()
+        .map(|w| if *w { tile::TileType::Floor } else { tile::TileType::Wall })
+        .collect();
+
+    generator::MapData {
+        width: snap.width,
+        height: snap.height,
+        tiles,
+        player_start: snap.player_start,
+        campfire_spawn: snap.campfire_spawn,
+        signpost_spawn: snap.signpost_spawn,
+        npc_spawn: snap.npc_spawn,
+        weapon_chest_spawn: snap.weapon_chest_spawn,
+        key_chest_spawn: snap.key_chest_spawn,
+        locked_door_pos: snap.locked_door_pos,
+        locked_door_orientation: snap.locked_door_orientation.into(),
+        ladder_pos: snap.ladder_pos,
+        ladder_up_pos: snap.ladder_up_pos,
+        spawner_pos: snap.spawner_pos,
+    }
 }
 
 /// Returns `true` if the wall tile at `(x, y)` shares an edge or corner with at least one floor tile.

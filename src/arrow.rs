@@ -205,6 +205,52 @@ fn fire_arrow(
     aim_state.reset_charge();
 }
 
+/// Spawns a landed [`Arrow`] entity at `position` with the given facing rotation (radians, z-axis).
+///
+/// Used by the save-load system to restore arrows that were lying on the ground when
+/// the player saved. The arrow is created in [`ArrowState::Landed`] so it can be
+/// picked up immediately by walking onto it. The shadow child is hidden — landed
+/// arrows sit flush with the floor.
+pub fn spawn_landed_arrow_entity(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    layouts: &mut Assets<TextureAtlasLayout>,
+    position: Vec2,
+    rotation_z: f32,
+) -> Entity {
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
+    let layout_handle = layouts.add(layout);
+
+    commands
+        .spawn((
+            Arrow { state: ArrowState::Landed },
+            Transform::from_translation(position.extend(0.0)),
+            Visibility::default(),
+        ))
+        .with_children(|root| {
+            root.spawn((
+                ArrowShadow,
+                Sprite::from_color(Color::srgba(0.0, 0.0, 0.0, 0.4), SHADOW_SIZE),
+                Transform::from_xyz(0.0, 0.0, -0.05),
+                Visibility::Hidden,
+            ));
+            root.spawn((
+                ArrowVisual,
+                Sprite::from_atlas_image(
+                    asset_server.load("atlas_8x8.png"),
+                    TextureAtlas { layout: layout_handle, index: ARROW_ATLAS_INDEX },
+                ),
+                Transform {
+                    translation: Vec3::new(0.0, 0.0, 0.5),
+                    rotation: Quat::from_rotation_z(rotation_z),
+                    ..default()
+                },
+                SpriteAnimation::with_name("arrow", false),
+            ));
+        })
+        .id()
+}
+
 /// Returns the ammo item id for the equipped hotbar item, or `None` if there is no
 /// equipped slot, no item, or the item does not consume ammo.
 fn resolve_ammo_id(

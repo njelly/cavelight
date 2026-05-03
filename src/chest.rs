@@ -17,12 +17,26 @@ pub struct Chest {
     pub is_open: bool,
 }
 
+/// Marks the weapon chest (bow + arrows) — used by the save system to associate
+/// a saved [`ChestSnapshot`](crate::save::ChestSnapshot) with the correct chest entity.
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
+pub struct WeaponChest;
+
+/// Marks the key chest — used by the save system to associate a saved
+/// [`ChestSnapshot`](crate::save::ChestSnapshot) with the correct chest entity.
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
+pub struct KeyChest;
+
 /// Spawns both level chests and registers the shared interaction observer.
 pub struct ChestPlugin;
 
 impl Plugin for ChestPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Chest>()
+            .register_type::<WeaponChest>()
+            .register_type::<KeyChest>()
             .add_systems(Startup, (spawn_weapon_chest, spawn_key_chest))
             .add_observer(on_chest_interact);
     }
@@ -43,7 +57,8 @@ fn spawn_weapon_chest(
     inventory.insert_first_empty(ItemStack::new("arrow", 8));
     inventory.insert_first_empty(ItemStack::new("bow", 1));
 
-    spawn_chest_entity(&mut commands, &asset_server, &mut layouts, spawn_point.0, inventory);
+    let entity = spawn_chest_entity(&mut commands, &asset_server, &mut layouts, spawn_point.0, inventory);
+    commands.entity(entity).insert(WeaponChest);
 }
 
 /// Spawns the key chest at [`KeyChestSpawnPoint`] pre-loaded with a key.
@@ -56,20 +71,23 @@ fn spawn_key_chest(
     let mut inventory = Inventory::new(16);
     inventory.insert_first_empty(ItemStack::new("key", 1));
 
-    spawn_chest_entity(&mut commands, &asset_server, &mut layouts, spawn_point.0, inventory);
+    let entity = spawn_chest_entity(&mut commands, &asset_server, &mut layouts, spawn_point.0, inventory);
+    commands.entity(entity).insert(KeyChest);
 }
 
 /// Spawns a chest entity at `pos` with the given `inventory`.
 ///
 /// The chest starts closed (atlas frame 3). [`Interactable`] lets the interaction
 /// system detect it, and a static [`Collider`] prevents the player walking through it.
+/// The caller attaches a [`WeaponChest`] or [`KeyChest`] marker so the save system can
+/// later identify which chest is which.
 fn spawn_chest_entity(
     commands: &mut Commands,
     asset_server: &AssetServer,
     layouts: &mut Assets<TextureAtlasLayout>,
     pos: Vec2,
     inventory: Inventory,
-) {
+) -> Entity {
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
     let layout_handle = layouts.add(layout);
 
@@ -84,7 +102,7 @@ fn spawn_chest_entity(
         Transform::from_xyz(pos.x, pos.y, 0.0),
         RigidBody::Static,
         Collider::rectangle(GRID_SIZE, GRID_SIZE),
-    ));
+    )).id()
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ mod level;
 mod menu;
 mod npc;
 mod player_input;
+mod save;
 mod signpost;
 mod skeleton;
 mod spawner;
@@ -51,6 +52,7 @@ use level::{LevelPlugin, PlayerSpawnPoint};
 use menu::{MenuPlugin, WorldInspectorOpen};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
 use npc::NpcPlugin;
+use save::SavePlugin;
 use signpost::SignpostPlugin;
 use goap::GoapPlugin;
 use skeleton::SkeletonPlugin;
@@ -104,6 +106,7 @@ fn main() {
             // | If you need more, group them into tuples to work around the limit.
             // | Tuples can contain up to 16 members but can be nested indefinitely.
             (
+                SavePlugin,
                 LevelPlugin,
                 CameraPlugin,
                 CampfirePlugin,
