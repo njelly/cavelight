@@ -6,6 +6,12 @@ use crate::input::{ActionInput, GameAction, InputSource};
 use crate::item::{Inventory, ItemLibrary, ItemStack};
 use crate::player_input::PlayerControlled;
 
+/// Seconds the QuickTransfer button must be held to trigger the "transfer all" action.
+const TRANSFER_ALL_HOLD_SECS: f32 = 1.0;
+
+/// PS5 Triangle / Xbox Y teal colour used for the △ glyph and progress ring.
+const TRIANGLE_COLOR: Color = Color::srgb(0.02, 0.62, 0.55);
+
 // ---------------------------------------------------------------------------
 // Layout constants (sizes as % of viewport height so the UI scales uniformly)
 // ---------------------------------------------------------------------------
@@ -204,6 +210,42 @@ struct HeldItemCursor;
 #[reflect(Component)]
 pub struct HotbarSlot;
 
+/// Tracks how long the QuickTransfer button has been held during the current press.
+///
+/// Reset whenever the button is released or the inventory closes. Drives both the
+/// single-item tap transfer and the timed "transfer all" hold gesture.
+#[derive(Resource, Default)]
+struct TransferHoldTimer {
+    /// Seconds the button has been held in the current press cycle.
+    elapsed: f32,
+    /// True once the 1-second "transfer all" has already fired this press, preventing re-triggering.
+    triggered: bool,
+    /// True if QuickTransfer was pressed on the previous frame (used to detect just-released).
+    was_pressed: bool,
+}
+
+/// Marker for the hint bar node shown below the inventory panels when a chest is open.
+///
+/// Hidden (`Display::None`) when no chest is active; shown as a `Display::Flex` row
+/// of button glyphs and labels describing the QuickTransfer gesture.
+#[derive(Component)]
+struct TransferHintBar;
+
+/// Marker for the circular hold-progress ring inside the hint bar.
+///
+/// Shown at all times when the hint bar is visible. The inner [`TransferProgressFill`]
+/// node grows from 0 % to 100 % height as the hold timer progresses, creating a
+/// "charging" visual. Overflow is clipped so the fill stays within the circle shape.
+#[derive(Component)]
+struct TransferProgressRing;
+
+/// Marker for the fill node inside the [`TransferProgressRing`].
+///
+/// Its `height` is animated from `Val::Percent(0)` to `Val::Percent(100)` by
+/// [`sync_transfer_progress_ui`] as the hold timer counts up.
+#[derive(Component)]
+struct TransferProgressFill;
+
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
@@ -219,6 +261,7 @@ impl Plugin for InventoryPlugin {
             .init_resource::<HeldItemSource>()
             .init_resource::<InventoryFocusSlot>()
             .init_resource::<EquippedHotbarSlot>()
+            .init_resource::<TransferHoldTimer>()
             .register_type::<InputMode>()
             .register_type::<HotbarSlot>()
             .register_type::<EquippedHotbarSlot>()
@@ -231,11 +274,13 @@ impl Plugin for InventoryPlugin {
                     handle_slot_click,
                     navigate_inventory,
                     confirm_inventory_slot,
+                    quick_transfer_slot,
                     sync_slot_icons,
                     update_held_cursor,
                     sync_overlay_visibility,
                     sync_chest_panel_visibility,
                     sync_inventory_focus_highlight,
+                    sync_transfer_progress_ui,
                     reset_focus_on_chest_close,
                     select_hotbar_slot,
                     sync_hotbar_borders,
@@ -337,12 +382,14 @@ fn spawn_inventory_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
 
                     // --- Content row: chest panel (hidden) + player panel ---
                     container
-                        .spawn(Node {
-                            flex_direction: FlexDirection::Row,
-                            column_gap: Val::Vh(PANEL_GAP_VH),
-                            padding: UiRect::all(Val::Vh(GRID_PADDING_VH)),
-                            ..default()
-                        })
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Row,
+                                column_gap: Val::Vh(PANEL_GAP_VH),
+                                padding: UiRect::all(Val::Vh(GRID_PADDING_VH)),
+                                ..default()
+                            },
+                        ))
                         .with_children(|content| {
                             // --- Chest panel (hidden until ActiveChest is set) ---
                             content
@@ -527,6 +574,175 @@ fn spawn_inventory_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             }
                                         });
                                 });
+                        });
+
+                    // --- Transfer hint bar (shown below panels when a chest is open) ---
+                    container
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Row,
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                column_gap: Val::Vh(2.0),
+                                padding: UiRect {
+                                    left:  Val::Vh(GRID_PADDING_VH),
+                                    right: Val::Vh(GRID_PADDING_VH),
+                                    top:   Val::Px(0.0),
+                                    bottom: Val::Vh(GRID_PADDING_VH),
+                                },
+                                // Hidden until a chest is open.
+                                display: Display::None,
+                                ..default()
+                            },
+                            TransferHintBar,
+                        ))
+                        .with_children(|bar| {
+                            let glyph_size = Val::Vh(3.8);
+                            let label_col = Color::srgb(0.60, 0.55, 0.45);
+                            let key_bg    = Color::srgb(0.18, 0.16, 0.13);
+                            let key_border = Color::srgb(0.45, 0.40, 0.30);
+
+                            // --- Tap group: [△] [T]  Transfer ---
+                            bar.spawn(Node {
+                                flex_direction: FlexDirection::Row,
+                                align_items: AlignItems::Center,
+                                column_gap: Val::Px(5.0),
+                                ..default()
+                            })
+                            .with_children(|tap| {
+                                // PS5 Triangle glyph
+                                tap.spawn((
+                                    Node {
+                                        width: glyph_size,
+                                        height: glyph_size,
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border_radius: BorderRadius::all(Val::Percent(50.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(TRIANGLE_COLOR),
+                                ))
+                                .with_children(|g| {
+                                    g.spawn((
+                                        Text::new("△"),
+                                        TextFont { font_size: 10.0, ..default() },
+                                        TextColor(Color::WHITE),
+                                    ));
+                                });
+                                // Keyboard [T] glyph
+                                tap.spawn((
+                                    Node {
+                                        width: glyph_size,
+                                        height: glyph_size,
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(Val::Px(1.5)),
+                                        border_radius: BorderRadius::all(Val::Px(3.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(key_bg),
+                                    BorderColor::all(key_border),
+                                ))
+                                .with_children(|g| {
+                                    g.spawn((
+                                        Text::new("T"),
+                                        TextFont { font_size: 10.0, ..default() },
+                                        TextColor(text_col),
+                                    ));
+                                });
+                                tap.spawn((
+                                    Text::new("Transfer"),
+                                    TextFont { font_size: 11.0, ..default() },
+                                    TextColor(label_col),
+                                ));
+                            });
+
+                            // Vertical divider
+                            bar.spawn((
+                                Node {
+                                    width: Val::Px(1.0),
+                                    height: Val::Vh(3.0),
+                                    ..default()
+                                },
+                                BackgroundColor(Color::srgb(0.28, 0.23, 0.18)),
+                            ));
+
+                            // --- Hold group: [progress-ring] [T]  Transfer All (hold) ---
+                            bar.spawn(Node {
+                                flex_direction: FlexDirection::Row,
+                                align_items: AlignItems::Center,
+                                column_gap: Val::Px(5.0),
+                                ..default()
+                            })
+                            .with_children(|hold| {
+                                // Progress ring: teal outline circle; fill grows bottom-to-top.
+                                hold.spawn((
+                                    Node {
+                                        width: glyph_size,
+                                        height: glyph_size,
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(Val::Px(2.0)),
+                                        border_radius: BorderRadius::all(Val::Percent(50.0)),
+                                        overflow: Overflow::clip(),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::srgba(0.02, 0.62, 0.55, 0.18)),
+                                    BorderColor::all(TRIANGLE_COLOR),
+                                    TransferProgressRing,
+                                ))
+                                .with_children(|ring| {
+                                    // Animated fill: height grows from 0 % to 100 % bottom-up.
+                                    ring.spawn((
+                                        Node {
+                                            position_type: PositionType::Absolute,
+                                            bottom: Val::Percent(0.0),
+                                            left: Val::Percent(0.0),
+                                            width: Val::Percent(100.0),
+                                            height: Val::Percent(0.0),
+                                            ..default()
+                                        },
+                                        BackgroundColor(Color::srgba(0.02, 0.62, 0.55, 0.80)),
+                                        TransferProgressFill,
+                                    ));
+                                    // △ symbol centred on top of the fill.
+                                    ring.spawn((
+                                        Text::new("△"),
+                                        TextFont { font_size: 10.0, ..default() },
+                                        TextColor(Color::WHITE),
+                                        Node {
+                                            position_type: PositionType::Absolute,
+                                            ..default()
+                                        },
+                                    ));
+                                });
+                                // Keyboard [T] glyph
+                                hold.spawn((
+                                    Node {
+                                        width: glyph_size,
+                                        height: glyph_size,
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(Val::Px(1.5)),
+                                        border_radius: BorderRadius::all(Val::Px(3.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(key_bg),
+                                    BorderColor::all(key_border),
+                                ))
+                                .with_children(|g| {
+                                    g.spawn((
+                                        Text::new("T"),
+                                        TextFont { font_size: 10.0, ..default() },
+                                        TextColor(text_col),
+                                    ));
+                                });
+                                hold.spawn((
+                                    Text::new("Transfer All (hold)"),
+                                    TextFont { font_size: 11.0, ..default() },
+                                    TextColor(label_col),
+                                ));
+                            });
                         });
                 });
         });
@@ -824,18 +1040,23 @@ fn sync_overlay_visibility(
 fn sync_chest_panel_visibility(
     active_chest: Res<ActiveChest>,
     mut panel: Query<(&mut Visibility, &mut Node), With<ChestPanel>>,
+    mut hint_bar: Query<&mut Node, (With<TransferHintBar>, Without<ChestPanel>)>,
 ) {
     if !active_chest.is_changed() {
         return;
     }
+    let chest_open = active_chest.0.is_some();
     for (mut vis, mut node) in &mut panel {
-        if active_chest.0.is_some() {
+        if chest_open {
             *vis = Visibility::Inherited;
             node.display = Display::Flex;
         } else {
             *vis = Visibility::Hidden;
             node.display = Display::None;
         }
+    }
+    for mut node in &mut hint_bar {
+        node.display = if chest_open { Display::Flex } else { Display::None };
     }
 }
 
@@ -1383,5 +1604,120 @@ fn sync_ammo_subview(
                 **text = total.to_string();
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Quick Transfer
+// ---------------------------------------------------------------------------
+
+/// Transfers the item in `src_index` of `src` into the first empty slot of `dst`.
+///
+/// Returns the item to its original slot if `dst` is full.
+fn transfer_one(src: &mut Inventory, src_index: usize, dst: &mut Inventory) {
+    let Some(stack) = src.take(src_index) else { return };
+    if !dst.insert_first_empty(stack.clone()) {
+        src.put(src_index, Some(stack)).ok();
+    }
+}
+
+/// Transfers every item from `src` into the first available slots of `dst`.
+///
+/// Stops early if `dst` becomes full; untransferred items remain in `src`.
+fn transfer_all(src: &mut Inventory, dst: &mut Inventory) {
+    for i in 0..src.len() {
+        if src.get(i).is_none() {
+            continue;
+        }
+        let stack = src.take(i).unwrap();
+        if !dst.insert_first_empty(stack.clone()) {
+            src.put(i, Some(stack)).ok();
+            break;
+        }
+    }
+}
+
+/// Handles the QuickTransfer gesture (△ / T):
+///
+/// - **Tap** (released before 1 s): moves the item in the currently focused grid slot
+///   to the first empty slot in the opposite panel.
+/// - **Hold** (held for 1 s): transfers *all* items from the focused panel to the
+///   opposite panel, shown by the progress ring filling up in the hint bar.
+///
+/// Bidirectional: if focus is on the Chest panel the item(s) move to the Player, and
+/// vice versa. Has no effect while the hotbar row is focused or while an item is held.
+fn quick_transfer_slot(
+    action_input: Res<ActionInput>,
+    input_mode: Res<InputMode>,
+    active_chest: Res<ActiveChest>,
+    focus: Res<InventoryFocusSlot>,
+    time: Res<Time>,
+    held: Res<HeldItem>,
+    mut timer: ResMut<TransferHoldTimer>,
+    mut player_inv: Query<&mut Inventory, (With<PlayerControlled>, Without<Chest>)>,
+    mut chest_inv: Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
+) {
+    // Gate: inventory must be open with a chest, no item held, and not on the hotbar.
+    let active = *input_mode == InputMode::Inventory
+        && active_chest.0.is_some()
+        && held.0.is_none()
+        && !focus.in_hotbar;
+
+    if !active {
+        if timer.was_pressed {
+            timer.elapsed = 0.0;
+            timer.triggered = false;
+            timer.was_pressed = false;
+        }
+        return;
+    }
+
+    let is_pressed = action_input.pressed(GameAction::QuickTransfer);
+    let just_released = timer.was_pressed && !is_pressed;
+
+    if is_pressed {
+        timer.elapsed += time.delta_secs();
+
+        if !timer.triggered && timer.elapsed >= TRANSFER_ALL_HOLD_SECS {
+            // Hold threshold reached: transfer everything from focused panel to opposite.
+            let Some(chest_entity) = active_chest.0 else { return };
+            let Ok(mut player) = player_inv.single_mut() else { return };
+            let Ok(mut chest) = chest_inv.get_mut(chest_entity) else { return };
+            match focus.panel {
+                InventoryPanel::Chest  => transfer_all(&mut chest, &mut player),
+                InventoryPanel::Player => transfer_all(&mut player, &mut chest),
+            }
+            timer.triggered = true;
+        }
+    } else if just_released && !timer.triggered {
+        // Tap: transfer only the focused slot.
+        let src_index = focus.row * GRID_COLS + focus.col;
+        let Some(chest_entity) = active_chest.0 else { return };
+        let Ok(mut player) = player_inv.single_mut() else { return };
+        let Ok(mut chest) = chest_inv.get_mut(chest_entity) else { return };
+        match focus.panel {
+            InventoryPanel::Chest  => transfer_one(&mut chest, src_index, &mut player),
+            InventoryPanel::Player => transfer_one(&mut player, src_index, &mut chest),
+        }
+    }
+
+    if !is_pressed {
+        timer.elapsed = 0.0;
+        timer.triggered = false;
+    }
+    timer.was_pressed = is_pressed;
+}
+
+/// Animates the transfer progress ring in the hint bar while QuickTransfer is held.
+///
+/// Grows the fill node's height from 0 % to 100 % as [`TransferHoldTimer::elapsed`]
+/// approaches [`TRANSFER_ALL_HOLD_SECS`]. Resets to 0 % when the button is released.
+fn sync_transfer_progress_ui(
+    timer: Res<TransferHoldTimer>,
+    mut fill: Query<&mut Node, With<TransferProgressFill>>,
+) {
+    let progress = (timer.elapsed / TRANSFER_ALL_HOLD_SECS).clamp(0.0, 1.0);
+    for mut node in &mut fill {
+        node.height = Val::Percent(progress * 100.0);
     }
 }

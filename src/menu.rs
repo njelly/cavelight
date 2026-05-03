@@ -112,6 +112,7 @@ impl Plugin for MenuPlugin {
                 (
                     (
                         handle_tab_cycle,
+                        handle_bumper_cycle,
                         handle_menu_escape,
                         handle_close_menu_button,
                         sync_pause_visibility,
@@ -479,6 +480,50 @@ fn handle_tab_cycle(
         }
         InputMode::Dialogue  => return,
     };
+}
+
+/// Cycles through menu screens with LB (backward) / RB (forward) while any menu screen is active.
+///
+/// Screen order: Pause → Inventory → Settings → (wraps back to Pause).
+/// LB steps backward through that order; RB steps forward. Performs the same inventory cleanup
+/// as [`handle_tab_cycle`] when leaving the inventory screen (returns held item, closes chest).
+fn handle_bumper_cycle(
+    action_input: Res<ActionInput>,
+    mut input_mode: ResMut<InputMode>,
+    mut held: ResMut<HeldItem>,
+    mut active_chest: ResMut<ActiveChest>,
+    mut player_inv: Query<&mut Inventory, With<PlayerControlled>>,
+    mut focus: ResMut<PauseFocusIndex>,
+) {
+    if !matches!(*input_mode, InputMode::Paused | InputMode::Inventory | InputMode::Settings) {
+        return;
+    }
+
+    let prev = action_input.just_pressed(GameAction::HotbarPrev);
+    let next = action_input.just_pressed(GameAction::HotbarNext);
+
+    if !prev && !next {
+        return;
+    }
+
+    if *input_mode == InputMode::Inventory {
+        return_held_item(&mut held, &mut player_inv);
+        active_chest.0 = None;
+    }
+
+    const SCREENS: [InputMode; 3] = [InputMode::Paused, InputMode::Inventory, InputMode::Settings];
+    let current = SCREENS.iter().position(|&s| s == *input_mode).unwrap_or(0);
+    let next_idx = if next {
+        (current + 1) % SCREENS.len()
+    } else {
+        (current + SCREENS.len() - 1) % SCREENS.len()
+    };
+
+    *input_mode = SCREENS[next_idx];
+
+    if *input_mode == InputMode::Paused {
+        focus.0 = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
