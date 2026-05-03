@@ -63,7 +63,8 @@ fn spawn_aim_indicator(
 ///
 /// Direction is resolved from the active input source:
 /// - `KeyboardMouse` → mouse cursor world position relative to the player.
-/// - `Gamepad` → right stick deflection, falling back to the player's current `Facing`.
+/// - `Gamepad` → left stick deflection (the movement stick doubles as aim while RT is held),
+///   falling back to the player's current `Facing`.
 fn update_aim(
     input_mode: Res<InputMode>,
     action_input: Res<ActionInput>,
@@ -111,10 +112,10 @@ fn update_aim(
             }
         }
         InputSource::Gamepad => {
-            // Aim toward the right stick; fall back to facing direction.
+            // Aim toward the left stick (movement stick); fall back to facing direction.
             let stick = gamepads.iter().find_map(|gp| {
-                let x = gp.get(GamepadAxis::RightStickX).unwrap_or(0.0);
-                let y = gp.get(GamepadAxis::RightStickY).unwrap_or(0.0);
+                let x = gp.get(GamepadAxis::LeftStickX).unwrap_or(0.0);
+                let y = gp.get(GamepadAxis::LeftStickY).unwrap_or(0.0);
                 let v = Vec2::new(x, y);
                 if v.length() > AIM_STICK_DEADZONE { Some(v.normalize()) } else { None }
             });

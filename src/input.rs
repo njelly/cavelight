@@ -69,6 +69,9 @@ pub enum GameAction {
     HotbarPrev,
     /// Cycle the hotbar to the next slot. E or Right Bumper (RB).
     HotbarNext,
+    /// Quick-transfer the focused inventory slot to the opposite panel (tap), or
+    /// transfer all items from the opposite panel (hold 1 second). T or △ / Y (North).
+    QuickTransfer,
 }
 
 /// Merged keyboard + gamepad input state for the current frame.
@@ -173,6 +176,9 @@ fn update_action_input(
     if keys.just_pressed(KeyCode::Digit4) { action_input.just_press(GameAction::HotbarSlot4); }
     if keys.just_pressed(KeyCode::KeyQ)   { action_input.just_press(GameAction::HotbarPrev); }
     if keys.just_pressed(KeyCode::KeyE)   { action_input.just_press(GameAction::HotbarNext); }
+    // QuickTransfer: held state for progress tracking + initial press detection.
+    if keys.pressed(KeyCode::KeyT)      { action_input.press(GameAction::QuickTransfer); }
+    if keys.just_pressed(KeyCode::KeyT) { action_input.just_press(GameAction::QuickTransfer); }
 
     // --- Gamepad ---
     // Accumulate left stick state across all connected pads (any-pad OR logic).
@@ -211,6 +217,9 @@ fn update_action_input(
         if gamepad.just_pressed(GamepadButton::Start)        { action_input.just_press(GameAction::OpenPause); }
         if gamepad.just_pressed(GamepadButton::LeftTrigger)  { action_input.just_press(GameAction::HotbarPrev); }
         if gamepad.just_pressed(GamepadButton::RightTrigger) { action_input.just_press(GameAction::HotbarNext); }
+        // North (△ / Y) also drives QuickTransfer — both held and initial press.
+        if gamepad.pressed(GamepadButton::North)      { action_input.press(GameAction::QuickTransfer); }
+        if gamepad.just_pressed(GamepadButton::North) { action_input.just_press(GameAction::QuickTransfer); }
     }
 
     // Apply left stick with threshold-crossing detection.

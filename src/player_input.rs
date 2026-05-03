@@ -154,11 +154,18 @@ fn update_facing(
 ///
 /// Bridges player intent to the movement simulator, keeping [`GridMover`] agnostic
 /// about where its direction comes from (keyboard, AI, cutscene, etc.).
+///
+/// When [`GameAction::Aim`] is held the direction is suppressed so the player
+/// finishes their current step and then stands still — the left stick (or mouse)
+/// aims the indicator rather than moving the character.
 fn apply_input_to_grid_mover(
+    action_input: Res<ActionInput>,
+    input_mode: Res<InputMode>,
     mut query: Query<(&PlayerInput, &mut GridMover), With<PlayerControlled>>,
 ) {
+    let aiming = *input_mode == InputMode::Playing && action_input.pressed(GameAction::Aim);
     for (input, mut mover) in &mut query {
-        mover.direction = input.direction;
+        mover.direction = if aiming { None } else { input.direction };
     }
 }
 

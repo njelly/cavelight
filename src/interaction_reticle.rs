@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::grid_mover::GridMoverSet;
 use crate::input::{ActionInput, GameAction};
+use crate::inventory::InputMode;
 use crate::player_input::{Facing, PlayerControlled};
 use crate::GRID_SIZE;
 
@@ -82,9 +83,13 @@ fn spawn_reticle(
 /// Handles Confirm input, advances the orbit animation, and updates the reticle sprite color.
 ///
 /// Runs after [`GridMoverSet`] so [`Facing`] has already been updated by the input chain.
+///
+/// While [`GameAction::Aim`] is held the reticle is forced to alpha 0 and the interaction
+/// timer is not advanced, so it stays hidden without resetting the activation state.
 fn update_reticle(
     time: Res<Time>,
     action_input: Res<ActionInput>,
+    input_mode: Res<InputMode>,
     player_query: Query<&Facing, With<PlayerControlled>>,
     mut reticle_query: Query<(&mut InteractionReticle, &mut Sprite, &mut Transform)>,
 ) {
@@ -92,8 +97,18 @@ fn update_reticle(
         return;
     };
 
+    let aiming = *input_mode == InputMode::Playing && action_input.pressed(GameAction::Aim);
+
     for (mut reticle, mut sprite, mut transform) in &mut reticle_query {
         reticle.target_angle = facing.angle();
+
+        // While aiming, hide immediately and skip timer/orbit updates.
+        if aiming {
+            reticle.current_angle = reticle.target_angle;
+            sprite.color = sprite.color.with_alpha(0.0);
+            transform.translation = (Vec2::from_angle(reticle.current_angle) * GRID_SIZE).extend(-0.5);
+            continue;
+        }
 
         if action_input.just_pressed(GameAction::Confirm) {
             reticle.last_interact_secs = time.elapsed_secs();
