@@ -49,9 +49,10 @@ fn spawn_camera(mut commands: Commands) {
 /// extent equals [`TARGET_VIEWPORT_HEIGHT`], keeping the zoom level constant across
 /// all window sizes and fullscreen modes.
 ///
-/// The level tilemap sprite is offset by `-GRID_SIZE / 2` in both axes (so that tile
-/// centers land on multiples of [`GRID_SIZE`]), which shifts the level bounding box
-/// slightly from the world origin. The clamp accounts for this offset.
+/// After clamping, the camera translation is snapped to the nearest screen pixel.
+/// This guarantees every atlas sprite is sampled at the centre of its texels rather
+/// than exactly on a UV boundary, which prevents sub-pixel bleeding from adjacent
+/// atlas frames.
 fn follow_player(
     player_query: Query<&Transform, With<PlayerControlled>>,
     mut camera_query: Query<(&mut Transform, &mut Projection), (With<Camera2d>, Without<PlayerControlled>)>,
@@ -90,6 +91,13 @@ fn follow_player(
     let y_min = level_min.y + half_vp.y;
     let y_max = level_max.y - half_vp.y;
 
-    camera.translation.x = if x_max >= x_min { target.x.clamp(x_min, x_max) } else { level_center.x };
-    camera.translation.y = if y_max >= y_min { target.y.clamp(y_min, y_max) } else { level_center.y };
+    let clamped_x = if x_max >= x_min { target.x.clamp(x_min, x_max) } else { level_center.x };
+    let clamped_y = if y_max >= y_min { target.y.clamp(y_min, y_max) } else { level_center.y };
+
+    // Snap to the nearest screen pixel so atlas sprites are always sampled at texel
+    // centres rather than UV boundaries. Without this, sub-pixel camera positions cause
+    // the GPU to sample the edge between adjacent atlas frames, producing 1-pixel colour
+    // bleeds from neighbouring sprites.
+    camera.translation.x = (clamped_x / scale).round() * scale;
+    camera.translation.y = (clamped_y / scale).round() * scale;
 }

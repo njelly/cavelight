@@ -175,15 +175,64 @@ pub fn generate_level1(width: usize, height: usize, seed: u64) -> MapData {
 
     // ------------------------------------------------------------------
     // 4. Locked door bottleneck position.
-    //    N/S corridors: door sits on the vertical spine at end_cx, midway
-    //    between the two room centres.
-    //    E/W corridors: door sits on the horizontal spine at start_cy, midway
-    //    along the east-west axis.
+    //    The door must land in the GAP between start_room and end_room —
+    //    never inside either room — so the barrier row/column does not cut
+    //    through either room.
+    //
+    //    N/S corridor (rotation 0 or 2):
+    //      door_x = end_cx (corridor spine column)
+    //      door_y = midpoint of the gap between the two rooms' nearest edges
+    //
+    //    E/W corridor (rotation 1 or 3):
+    //      door_y = start_cy (corridor spine row)
+    //      door_x = midpoint of the gap between the two rooms' nearest edges
     // ------------------------------------------------------------------
     let (door_x, door_y) = if corridor_is_ns {
-        (end_cx, (start_cy + end_cy) / 2)
+        // Determine which room is "lower" (smaller y) and which is "upper".
+        let door_y = if end_cy < start_cy {
+            // end room is south (lower y); gap is between end_room north edge and start_room south edge
+            let gap_top = end_room.y + end_room.h; // end room north edge
+            let gap_bot = start_room.y;             // start room south edge
+            if gap_top < gap_bot {
+                (gap_top + gap_bot) / 2
+            } else {
+                // Rooms overlap vertically — fall back just outside start_room south edge
+                start_room.y.saturating_sub(2).max(1)
+            }
+        } else {
+            // end room is north (higher y); gap is between start_room north edge and end_room south edge
+            let gap_bot = start_room.y + start_room.h; // start room north edge
+            let gap_top = end_room.y;                  // end room south edge
+            if gap_bot < gap_top {
+                (gap_bot + gap_top) / 2
+            } else {
+                // Rooms overlap vertically — fall back just outside start_room north edge
+                (start_room.y + start_room.h + 2).min(height - 2)
+            }
+        };
+        (end_cx, door_y)
     } else {
-        ((start_cx + end_cx) / 2, start_cy)
+        // Determine which room is "left" (smaller x) and which is "right".
+        let door_x = if end_cx < start_cx {
+            // end room is west (smaller x); gap is between end_room east edge and start_room west edge
+            let gap_right = end_room.x + end_room.w; // end room east edge
+            let gap_left  = start_room.x;             // start room west edge
+            if gap_right < gap_left {
+                (gap_right + gap_left) / 2
+            } else {
+                start_room.x.saturating_sub(2).max(1)
+            }
+        } else {
+            // end room is east (larger x); gap is between start_room east edge and end_room west edge
+            let gap_left  = start_room.x + start_room.w; // start room east edge
+            let gap_right = end_room.x;                  // end room west edge
+            if gap_left < gap_right {
+                (gap_left + gap_right) / 2
+            } else {
+                (start_room.x + start_room.w + 2).min(width - 2)
+            }
+        };
+        (door_x, start_cy)
     };
 
     // ------------------------------------------------------------------
@@ -586,6 +635,55 @@ pub fn random_floor_in_room(
 mod tests {
     use super::*;
 
+    /// BFS from `from` to `to`, treating `door_pos` as an impassable wall.
+    ///
+    /// Returns `true` if `to` is reachable from `from` through floor tiles without
+    /// stepping on the locked door tile.
+    fn can_reach_without_door(
+        tiles: &[TileType],
+        width: usize,
+        height: usize,
+        from: (usize, usize),
+        to: (usize, usize),
+        door_pos: (usize, usize),
+    ) -> bool {
+        if from == to {
+            return true;
+        }
+        let start_idx = from.1 * width + from.0;
+        let goal_idx  = to.1   * width + to.0;
+        let door_idx  = door_pos.1 * width + door_pos.0;
+
+        let mut visited = vec![false; width * height];
+        let mut queue   = VecDeque::new();
+        visited[start_idx] = true;
+        queue.push_back(start_idx);
+
+        while let Some(idx) = queue.pop_front() {
+            if idx == goal_idx {
+                return true;
+            }
+            let x = idx % width;
+            let y = idx / width;
+            for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
+                let nx = x as i32 + dx;
+                let ny = y as i32 + dy;
+                if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                    let nidx = ny as usize * width + nx as usize;
+                    // Treat the door tile as impassable.
+                    if nidx == door_idx {
+                        continue;
+                    }
+                    if matches!(tiles[nidx], TileType::Floor) && !visited[nidx] {
+                        visited[nidx] = true;
+                        queue.push_back(nidx);
+                    }
+                }
+            }
+        }
+        false
+    }
+
     #[test]
     fn generate_level1_correct_dimensions() {
         let map = generate_level1(64, 64, 0);
@@ -809,6 +907,63 @@ mod tests {
             assert_eq!(
                 map.locked_door_orientation, detected,
                 "seed {seed}: stored orientation doesn't match tile neighbors"
+            );
+        }
+    }
+
+    /// Regression test: seed 1777767333898089000 previously placed the door
+    /// barrier inside the start room, cutting off the player from the key chest.
+    ///
+    /// This test verifies that the player_start can reach key_chest_spawn
+    /// WITHOUT passing through the locked door tile (BFS with door blocked).
+    #[test]
+    fn regression_seed_1777767333898089000_player_can_reach_key_chest() {
+        let seed = 1777767333898089000u64;
+        let map = generate_level1(64, 64, seed);
+        let (dx, dy) = map.locked_door_pos;
+        println!("seed={seed}");
+        println!("  player_start    = {:?}", map.player_start);
+        println!("  key_chest_spawn = {:?}", map.key_chest_spawn);
+        println!("  locked_door_pos = {:?}", map.locked_door_pos);
+        println!("  orientation     = {:?}", map.locked_door_orientation);
+
+        let reachable = can_reach_without_door(
+            &map.tiles, map.width, map.height,
+            map.player_start, map.key_chest_spawn, (dx, dy),
+        );
+        assert!(
+            reachable,
+            "seed {seed}: player_start {:?} cannot reach key_chest_spawn {:?} without door {:?}",
+            map.player_start, map.key_chest_spawn, (dx, dy)
+        );
+    }
+
+    /// Property test: across a wide range of seeds, the player must always be
+    /// able to reach the key chest without passing through the locked door.
+    ///
+    /// This verifies that the door barrier is never placed in a way that traps
+    /// the player on the wrong side of the door.
+    #[test]
+    fn player_can_always_reach_key_chest_without_door() {
+        let seeds: &[u64] = &[
+            0, 1, 2, 3, 42, 99, 100, 256, 999, 1234, 12345, 54321,
+            100_000, 987_654, 1_000_000, 9_999_999,
+            0xDEAD_BEEF, 0xCAFE_BABE, 0x1234_5678, 0xABCD_EF01,
+            1777767333898089000,
+            404, 1337, 31415, 271828, 1_111_111, 2_222_222, 7_777_777,
+        ];
+        for &seed in seeds {
+            let map = generate_level1(64, 64, seed);
+            let door = map.locked_door_pos;
+            let reachable = can_reach_without_door(
+                &map.tiles, map.width, map.height,
+                map.player_start, map.key_chest_spawn, door,
+            );
+            assert!(
+                reachable,
+                "seed {seed}: player_start {:?} cannot reach key_chest_spawn {:?} \
+                 without door {:?} (orientation={:?})",
+                map.player_start, map.key_chest_spawn, door, map.locked_door_orientation
             );
         }
     }

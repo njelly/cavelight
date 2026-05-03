@@ -61,6 +61,10 @@ pub enum InputMode {
     Inventory,
     /// Dialogue panel is open — Space advances pages, player cannot move or interact.
     Dialogue,
+    /// Pause menu is open — WASD navigates buttons, Space confirms.
+    Paused,
+    /// Settings screen is open.
+    Settings,
 }
 
 /// Which hotbar slot (0–3) is currently equipped, if any.
@@ -656,19 +660,36 @@ fn spawn_hotbar(mut commands: Commands, asset_server: Res<AssetServer>) {
 // Systems
 // ---------------------------------------------------------------------------
 
-/// Opens the player-only inventory when I is pressed during [`InputMode::Playing`].
-/// Closes it if I is pressed again and no chest is active (use Escape or X otherwise).
+/// Opens the player-only inventory when I is pressed.
+///
+/// - Playing → Inventory.
+/// - Inventory (no active chest) → Playing (also returns any held item to the player).
+/// - Paused / Settings → Inventory (switches the visible menu screen without closing).
 fn toggle_inventory(
     keys: Res<ButtonInput<KeyCode>>,
     mut input_mode: ResMut<InputMode>,
     active_chest: Res<ActiveChest>,
+    mut held: ResMut<HeldItem>,
+    mut player_inv: Query<&mut Inventory, With<PlayerControlled>>,
 ) {
     if !keys.just_pressed(KeyCode::KeyI) {
         return;
     }
     match *input_mode {
         InputMode::Playing => *input_mode = InputMode::Inventory,
-        InputMode::Inventory if active_chest.0.is_none() => *input_mode = InputMode::Playing,
+        InputMode::Inventory if active_chest.0.is_none() => {
+            // Return any item held by the cursor before closing.
+            if let Some(stack) = held.0.take() {
+                if let Ok(mut inv) = player_inv.single_mut() {
+                    if !inv.insert_first_empty(stack.clone()) {
+                        warn!("Inventory full — dropped '{}' on close.", stack.id);
+                    }
+                }
+            }
+            *input_mode = InputMode::Playing;
+        }
+        // Jump to the inventory screen from any other menu screen.
+        InputMode::Paused | InputMode::Settings => *input_mode = InputMode::Inventory,
         _ => {}
     }
 }

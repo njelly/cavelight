@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-We are developing a video game, *Cavelight*, in Rust using Bevy.
+We are developing a video game, *Cavelight*, in Rust using Bevy 0.18.1
 
 ## Project structure
 
@@ -30,7 +30,8 @@ cavelight/
 │   ├── grid_mover.rs               # GridMoverPlugin — smooth grid-locked movement (Pokémon-style). GridMover component; exposes GridMoverSet for system ordering.
 │   ├── interaction.rs              # InteractionPlugin — Interactable marker, InteractEvent trigger, InteractionSet system set. Space press fires InteractEvent; gated on InputMode::Playing.
 │   ├── interaction_reticle.rs      # InteractionReticlePlugin — tile-highlight square that shows the player's facing tile. Space fades it in; it fades out 1s after last press. Orbits to new facing on direction change.
-│   ├── inventory.rs                # InventoryPlugin — dual-panel (Chest/Player) 4x4 inventory UI + hotbar. InputMode (Playing/Inventory/Dialogue) gates player input. HeldItem + slot-swap drag model. ActiveChest tracks open chest.
+│   ├── inventory.rs                # InventoryPlugin — dual-panel (Chest/Player) 4x4 inventory UI + hotbar. InputMode (Playing/Inventory/Dialogue/Paused/Settings) gates player input. HeldItem + slot-swap drag model. ActiveChest tracks open chest.
+│   ├── menu.rs                     # MenuPlugin — Tab-cycling menu system: Pause screen (Continue/Save&Quit, WASD nav), Settings screen (developer toggles for physics debug + world inspector). WorldInspectorOpen resource. Shared CloseMenuButton (X) and dim overlay. Escape closes to Playing.
 │   ├── item.rs                     # ItemPlugin — ItemDef/ItemDefList (RON asset), ItemStack, Inventory component, ItemLibrary resource. Loads item_definitions.ron and pre-loads icon handles.
 │   ├── ladder.rs                   # LadderPlugin — solid inert ladder sprite at LadderSpawnPoint (atlas frame 15, "ladder_down"). No interaction yet; floor-transition logic is a future feature.
 │   ├── goap.rs                     # GoapPlugin — Goal-Oriented Action Planning. GoapAgent component; WorldState, Goal, Action types; plan_for_goal(); execute_navigate and execute_idle systems; 0.5s achievability replan timer.

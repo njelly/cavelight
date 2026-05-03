@@ -15,6 +15,7 @@ mod inventory;
 mod item;
 mod ladder;
 mod level;
+mod menu;
 mod npc;
 mod player_input;
 mod signpost;
@@ -42,6 +43,7 @@ use inventory::InventoryPlugin;
 use item::{Inventory, ItemPlugin, ItemStack};
 use ladder::LadderPlugin;
 use level::{LevelPlugin, PlayerSpawnPoint};
+use menu::{MenuPlugin, WorldInspectorOpen};
 use player_input::{Facing, PlayerControlled, PlayerInput, PlayerInputPlugin};
 use npc::NpcPlugin;
 use signpost::SignpostPlugin;
@@ -52,12 +54,6 @@ use sprite_animation::{SpriteAnimation, SpriteAnimationPlugin};
 
 // One grid cell = 8x8 pixels
 pub const GRID_SIZE: f32 = 8.0;
-
-/// Tracks whether the egui world inspector panel is visible.
-///
-/// Defaults to `false` (hidden). Toggle with F2.
-#[derive(Resource, Default)]
-struct WorldInspectorOpen(bool);
 
 /// Marks the lantern light carried by the player.
 ///
@@ -119,6 +115,7 @@ fn main() {
                 InventoryPlugin,
                 ItemPlugin,
                 LadderPlugin,
+                MenuPlugin,
                 NpcPlugin,
                 PlayerInputPlugin,
                 SignpostPlugin,
@@ -130,7 +127,6 @@ fn main() {
         ))
         .register_type::<PlayerLantern>()
         .insert_gizmo_config(PhysicsGizmos::default(), GizmoConfig { enabled: false, ..default() })
-        .init_resource::<WorldInspectorOpen>()
         .add_systems(Startup, spawn_player)
         .add_systems(Update, (toggle_physics_debug, toggle_world_inspector))
         .run();
