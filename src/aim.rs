@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 
 use crate::input::{ActionInput, GameAction, InputSource};
 use crate::inventory::{EquippedHotbarSlot, InputMode, HOTBAR_START};
@@ -13,12 +14,29 @@ const AIM_STICK_DEADZONE: f32 = 0.3;
 /// Distance from the player center at which the aim indicator orbits, in world units.
 const ORBIT_RADIUS: f32 = GRID_SIZE;
 
-/// Marks the orbiting aim indicator sprite entity.
+/// Seconds of continuous aiming required to reach full charge.
+const CHARGE_DURATION: f32 = 1.0;
+
+/// Arrow alpha for the dim background layer (uncharged state).
+const ARROW_ALPHA_BG: f32 = 0.2;
+
+/// Arrow alpha for the bright fill layer (charged state).
+const ARROW_ALPHA_FILL: f32 = 0.8;
+
+/// Marks the dim background arrow sprite that shows the full indicator at low opacity.
 ///
 /// Spawned once at startup and repositioned each frame. Visible only when the player
 /// is holding Shift with an ammo-using item equipped in the hotbar.
 #[derive(Component)]
 pub struct AimIndicator;
+
+/// Marks the bright fill arrow sprite that grows from tail to tip as charge builds.
+///
+/// Uses [`Anchor::CENTER_LEFT`] so its pivot is at the tail of the arrow. The `rect`
+/// field is updated each frame to clip the source tile from the right, revealing only
+/// the charged fraction at full opacity.
+#[derive(Component)]
+pub struct AimIndicatorFill;
 
 /// Marks the bow sprite overlay that renders on top of the player while aiming.
 ///
@@ -36,14 +54,15 @@ pub struct AimPlugin;
 
 impl Plugin for AimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_aim_indicator, spawn_bow_overlay))
+        app.add_systems(Startup, (spawn_aim_indicator, spawn_aim_indicator_fill, spawn_bow_overlay))
             .add_systems(Update, update_aim);
     }
 }
 
-/// Spawns the aim indicator sprite as a hidden entity.
+/// Spawns the dim background arrow sprite as a hidden entity.
 ///
-/// Uses atlas frame 22 (`direction_arrow_east`) from `atlas_8x8.png`.
+/// Always shows the full arrow at [`ARROW_ALPHA_BG`] opacity. Uses atlas frame 22
+/// (`direction_arrow_east`) and a [`SpriteAnimation`] to drive the atlas index.
 fn spawn_aim_indicator(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -54,13 +73,44 @@ fn spawn_aim_indicator(
 
     commands.spawn((
         AimIndicator,
-        Sprite::from_atlas_image(
-            asset_server.load("atlas_8x8.png"),
-            TextureAtlas { layout: layout_handle, index: 22 },
-        ),
+        Sprite {
+            color: Color::srgba(1.0, 1.0, 1.0, ARROW_ALPHA_BG),
+            ..Sprite::from_atlas_image(
+                asset_server.load("atlas_8x8.png"),
+                TextureAtlas { layout: layout_handle, index: 22 },
+            )
+        },
         Transform::from_xyz(0.0, 0.0, 1.0),
         Visibility::Hidden,
         SpriteAnimation::with_name("direction_arrow_east", false),
+    ));
+}
+
+/// Spawns the bright fill arrow sprite as a hidden entity.
+///
+/// Left-anchored at the arrow tail so the clipped rect grows toward the tip.
+/// Uses the same atlas as [`AimIndicator`] but without [`SpriteAnimation`]
+/// (the atlas index and rect are driven directly by [`update_aim`]).
+fn spawn_aim_indicator_fill(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+) {
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
+    let layout_handle = layouts.add(layout);
+
+    commands.spawn((
+        AimIndicatorFill,
+        Sprite {
+            color: Color::srgba(1.0, 1.0, 1.0, ARROW_ALPHA_FILL),
+            ..Sprite::from_atlas_image(
+                asset_server.load("atlas_8x8.png"),
+                TextureAtlas { layout: layout_handle, index: 22 },
+            )
+        },
+        Anchor::CENTER_LEFT,
+        Transform::from_xyz(0.0, 0.0, 1.1),
+        Visibility::Hidden,
     ));
 }
 
@@ -97,7 +147,13 @@ fn spawn_bow_overlay(
 /// - `KeyboardMouse` → mouse cursor world position relative to the player.
 /// - `Gamepad` → left stick deflection (the movement stick doubles as aim while RT is held),
 ///   falling back to the player's current `Facing`.
+///
+/// The fill layer uses `Sprite.rect` (tile-local coordinates) to clip the arrow sprite
+/// from the right, revealing only the charged fraction. Its pivot sits at the arrow tail
+/// so the visible region grows from tail toward tip as `charge_elapsed` accumulates.
 fn update_aim(
+    time: Res<Time>,
+    mut charge_elapsed: Local<f32>,
     input_mode: Res<InputMode>,
     action_input: Res<ActionInput>,
     input_source: Res<InputSource>,
@@ -108,9 +164,11 @@ fn update_aim(
     window_query: Query<&Window>,
     gamepads: Query<&Gamepad>,
     mut indicator_query: Query<(&mut Transform, &mut Visibility), (With<AimIndicator>, Without<PlayerControlled>)>,
-    mut bow_query: Query<(&mut Transform, &mut Visibility), (With<BowOverlay>, Without<PlayerControlled>, Without<AimIndicator>)>,
+    mut fill_query: Query<(&mut Transform, &mut Visibility, &mut Sprite), (With<AimIndicatorFill>, Without<PlayerControlled>, Without<AimIndicator>)>,
+    mut bow_query: Query<(&mut Transform, &mut Visibility), (With<BowOverlay>, Without<PlayerControlled>, Without<AimIndicator>, Without<AimIndicatorFill>)>,
 ) {
     let Ok((mut ind_tf, mut ind_vis)) = indicator_query.single_mut() else { return };
+    let Ok((mut fill_tf, mut fill_vis, mut fill_sprite)) = fill_query.single_mut() else { return };
     let Ok((mut bow_tf, mut bow_vis)) = bow_query.single_mut() else { return };
 
     let aiming = *input_mode == InputMode::Playing
@@ -120,20 +178,23 @@ fn update_aim(
 
     if !aiming {
         *ind_vis = Visibility::Hidden;
+        *fill_vis = Visibility::Hidden;
         *bow_vis = Visibility::Hidden;
+        *charge_elapsed = 0.0;
         return;
     }
 
     let Ok((player_tf, _, facing)) = player_query.single() else {
         *ind_vis = Visibility::Hidden;
+        *fill_vis = Visibility::Hidden;
         *bow_vis = Visibility::Hidden;
+        *charge_elapsed = 0.0;
         return;
     };
     let player_pos = player_tf.translation.truncate();
 
     let direction = match *input_source {
         InputSource::KeyboardMouse => {
-            // Aim toward the mouse cursor in world space.
             let dir = (|| -> Option<Vec2> {
                 let (camera, camera_gtf) = camera_query.single().ok()?;
                 let window = window_query.single().ok()?;
@@ -146,13 +207,13 @@ fn update_aim(
                 Some(d) => d,
                 None => {
                     *ind_vis = Visibility::Hidden;
+                    *fill_vis = Visibility::Hidden;
                     *bow_vis = Visibility::Hidden;
                     return;
                 }
             }
         }
         InputSource::Gamepad => {
-            // Aim toward the left stick (movement stick); fall back to facing direction.
             let stick = gamepads.iter().find_map(|gp| {
                 let x = gp.get(GamepadAxis::LeftStickX).unwrap_or(0.0);
                 let y = gp.get(GamepadAxis::LeftStickY).unwrap_or(0.0);
@@ -164,13 +225,28 @@ fn update_aim(
     };
 
     let orbit_pos = player_pos + direction * ORBIT_RADIUS;
+    let rotation = Quat::from_rotation_z(direction.to_angle());
+
+    // Background: centered at orbit position, full arrow at dim opacity.
     ind_tf.translation = orbit_pos.extend(1.0);
-    ind_tf.rotation = Quat::from_rotation_z(direction.to_angle());
+    ind_tf.rotation = rotation;
     *ind_vis = Visibility::Inherited;
 
-    // Overlay the bow on the player, rotated to point in the aim direction.
+    // Accumulate charge while aim is held, capped at CHARGE_DURATION.
+    *charge_elapsed = (*charge_elapsed + time.delta_secs()).min(CHARGE_DURATION);
+    let charge = *charge_elapsed / CHARGE_DURATION;
+
+    // Fill layer: pivot at the arrow tail (left end in sprite-local space).
+    // Sprite.rect in tile-local coordinates clips the right side so only `charge`
+    // fraction of the tile is sampled — growing from tail toward tip.
+    let tail_pos = orbit_pos - direction * (GRID_SIZE / 2.0);
+    fill_tf.translation = tail_pos.extend(1.1);
+    fill_tf.rotation = rotation;
+    fill_sprite.rect = Some(Rect::new(0.0, 0.0, GRID_SIZE * charge, GRID_SIZE));
+    *fill_vis = Visibility::Inherited;
+
+    // Bow overlay: on the player, rotated toward aim direction.
     bow_tf.translation = player_pos.extend(0.5);
-    // The bow sprite faces north in the atlas, so offset by -90° to align east with angle 0.
     // The bow sprite faces south in the atlas, so offset by +90° to align east with angle 0.
     bow_tf.rotation = Quat::from_rotation_z(direction.to_angle() + std::f32::consts::FRAC_PI_2);
     *bow_vis = Visibility::Inherited;
