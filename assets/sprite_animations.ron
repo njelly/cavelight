@@ -55,4 +55,11 @@
     "direction_arrow_south": (frames: [20]),
     "direction_arrow_west":  (frames: [21]),
     "direction_arrow_north": (frames: [19]),
+
+    // Weapons
+    "sword": (frames: [68]),
+    "shield": (frames: [69]),
+    "bow": (frames: [70]),
+    "arrow": (frames: [74]),
+    "pickaxe": (frames: [73])
 }

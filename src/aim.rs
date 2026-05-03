@@ -20,6 +20,14 @@ const ORBIT_RADIUS: f32 = GRID_SIZE;
 #[derive(Component)]
 pub struct AimIndicator;
 
+/// Marks the bow sprite overlay that renders on top of the player while aiming.
+///
+/// Spawned once at startup and positioned at the player each frame. Rotates to face
+/// the aim direction so the bow visually points toward the cursor (or stick input).
+/// Visible only when [`AimIndicator`] would also be visible.
+#[derive(Component)]
+pub struct BowOverlay;
+
 /// Drives the aim indicator sprite that orbits the player toward the mouse cursor.
 ///
 /// When the player has an item with `ammo_id` equipped and holds Shift, the indicator
@@ -28,7 +36,7 @@ pub struct AimPlugin;
 
 impl Plugin for AimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_aim_indicator)
+        app.add_systems(Startup, (spawn_aim_indicator, spawn_bow_overlay))
             .add_systems(Update, update_aim);
     }
 }
@@ -56,6 +64,30 @@ fn spawn_aim_indicator(
     ));
 }
 
+/// Spawns the bow overlay sprite as a hidden entity.
+///
+/// Uses atlas frame 70 (`"bow"`) from `atlas_8x8.png`. Positioned above the player
+/// (z = 0.5) so it overlays the character sprite while aiming.
+fn spawn_bow_overlay(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+) {
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(8), 64, 64, None, None);
+    let layout_handle = layouts.add(layout);
+
+    commands.spawn((
+        BowOverlay,
+        Sprite::from_atlas_image(
+            asset_server.load("atlas_8x8.png"),
+            TextureAtlas { layout: layout_handle, index: 70 },
+        ),
+        Transform::from_xyz(0.0, 0.0, 0.5),
+        Visibility::Hidden,
+        SpriteAnimation::with_name("bow", false),
+    ));
+}
+
 /// Positions the aim indicator to orbit the player toward the aim direction.
 ///
 /// Active only while `InputMode::Playing`, Aim is held (Shift or RT), and the equipped
@@ -76,8 +108,10 @@ fn update_aim(
     window_query: Query<&Window>,
     gamepads: Query<&Gamepad>,
     mut indicator_query: Query<(&mut Transform, &mut Visibility), (With<AimIndicator>, Without<PlayerControlled>)>,
+    mut bow_query: Query<(&mut Transform, &mut Visibility), (With<BowOverlay>, Without<PlayerControlled>, Without<AimIndicator>)>,
 ) {
     let Ok((mut ind_tf, mut ind_vis)) = indicator_query.single_mut() else { return };
+    let Ok((mut bow_tf, mut bow_vis)) = bow_query.single_mut() else { return };
 
     let aiming = *input_mode == InputMode::Playing
         && action_input.pressed(GameAction::Aim)
@@ -86,11 +120,13 @@ fn update_aim(
 
     if !aiming {
         *ind_vis = Visibility::Hidden;
+        *bow_vis = Visibility::Hidden;
         return;
     }
 
     let Ok((player_tf, _, facing)) = player_query.single() else {
         *ind_vis = Visibility::Hidden;
+        *bow_vis = Visibility::Hidden;
         return;
     };
     let player_pos = player_tf.translation.truncate();
@@ -108,7 +144,11 @@ fn update_aim(
             })();
             match dir {
                 Some(d) => d,
-                None => { *ind_vis = Visibility::Hidden; return; }
+                None => {
+                    *ind_vis = Visibility::Hidden;
+                    *bow_vis = Visibility::Hidden;
+                    return;
+                }
             }
         }
         InputSource::Gamepad => {
@@ -127,6 +167,13 @@ fn update_aim(
     ind_tf.translation = orbit_pos.extend(1.0);
     ind_tf.rotation = Quat::from_rotation_z(direction.to_angle());
     *ind_vis = Visibility::Inherited;
+
+    // Overlay the bow on the player, rotated to point in the aim direction.
+    bow_tf.translation = player_pos.extend(0.5);
+    // The bow sprite faces north in the atlas, so offset by -90° to align east with angle 0.
+    // The bow sprite faces south in the atlas, so offset by +90° to align east with angle 0.
+    bow_tf.rotation = Quat::from_rotation_z(direction.to_angle() + std::f32::consts::FRAC_PI_2);
+    *bow_vis = Visibility::Inherited;
 }
 
 /// Returns `true` if the currently equipped hotbar item has a non-`None` `ammo_id`.
