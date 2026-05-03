@@ -57,6 +57,8 @@ pub enum GameAction {
     OpenPause,
     /// Hold to aim a ranged weapon. Shift or Right Trigger (RT).
     Aim,
+    /// Fire a ranged weapon while aiming. Left mouse button or X (West button).
+    Shoot,
     /// Select hotbar slot 1 directly. Key 1.
     HotbarSlot1,
     /// Select hotbar slot 2 directly. Key 2.
@@ -142,6 +144,7 @@ impl Plugin for InputPlugin {
 /// - LB (LeftTrigger) → HotbarPrev
 /// - RB (RightTrigger) → HotbarNext
 /// - RT (Right trigger axis) → Aim
+/// - X (West) → Shoot
 fn update_action_input(
     mut action_input: ResMut<ActionInput>,
     mut stick_nav: ResMut<StickNavState>,
@@ -158,6 +161,9 @@ fn update_action_input(
     if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft)  { action_input.press(GameAction::MoveWest); }
     if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) { action_input.press(GameAction::MoveEast); }
     if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) { action_input.press(GameAction::Aim); }
+
+    // --- Mouse: just pressed ---
+    if mouse_buttons.just_pressed(MouseButton::Left) { action_input.just_press(GameAction::Shoot); }
 
     // --- Keyboard: initial press (for UI navigation — just_press also sets pressed) ---
     if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp)    { action_input.just_press(GameAction::MoveNorth); }
@@ -217,6 +223,8 @@ fn update_action_input(
         if gamepad.just_pressed(GamepadButton::Start)        { action_input.just_press(GameAction::OpenPause); }
         if gamepad.just_pressed(GamepadButton::LeftTrigger)  { action_input.just_press(GameAction::HotbarPrev); }
         if gamepad.just_pressed(GamepadButton::RightTrigger) { action_input.just_press(GameAction::HotbarNext); }
+        // West (X on Xbox / Square on PS) → Shoot. Tap to fire while aiming.
+        if gamepad.just_pressed(GamepadButton::West)         { action_input.just_press(GameAction::Shoot); }
         // North (△ / Y) also drives QuickTransfer — both held and initial press.
         if gamepad.pressed(GamepadButton::North)      { action_input.press(GameAction::QuickTransfer); }
         if gamepad.just_pressed(GamepadButton::North) { action_input.just_press(GameAction::QuickTransfer); }

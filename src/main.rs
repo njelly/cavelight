@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod aim;
+mod arrow;
 mod camera;
 mod campfire;
 mod chest;
@@ -32,6 +33,7 @@ use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_light_2d::prelude::*;
 use aim::AimPlugin;
+use arrow::ArrowPlugin;
 use camera::CameraPlugin;
 use campfire::CampfirePlugin;
 use chest::ChestPlugin;
@@ -114,6 +116,7 @@ fn main() {
             ),
             (
                 AimPlugin,
+                ArrowPlugin,
                 GoapPlugin,
                 InputPlugin,
                 InventoryPlugin,

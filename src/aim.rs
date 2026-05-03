@@ -23,6 +23,32 @@ const ARROW_ALPHA_BG: f32 = 0.2;
 /// Arrow alpha for the bright fill layer (charged state).
 const ARROW_ALPHA_FILL: f32 = 0.8;
 
+/// Live aim state shared with downstream systems (e.g. the bow shooting system).
+///
+/// Updated every frame by [`update_aim`]. When `active` is `true`, the player is
+/// currently aiming a ranged weapon and `direction`, `origin`, and `charge` reflect
+/// the current shot parameters.
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct AimState {
+    /// `true` when the aim indicator is visible and the player can fire this frame.
+    pub active: bool,
+    /// Charge fraction in `[0.0, 1.0]` — 1.0 means a full-power shot.
+    pub charge: f32,
+    /// World-space unit direction of the aim, from the player toward the cursor / stick.
+    pub direction: Vec2,
+    /// World-space position of the player at the time the aim was sampled.
+    pub origin: Vec2,
+}
+
+impl AimState {
+    /// Resets the charge accumulator without changing the active flag.
+    ///
+    /// Called by the shooting system after firing so the next shot starts fresh.
+    pub fn reset_charge(&mut self) {
+        self.charge = 0.0;
+    }
+}
+
 /// Marks the dim background arrow sprite that shows the full indicator at low opacity.
 ///
 /// Spawned once at startup and repositioned each frame. Visible only when the player
@@ -54,7 +80,8 @@ pub struct AimPlugin;
 
 impl Plugin for AimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_aim_indicator, spawn_aim_indicator_fill, spawn_bow_overlay))
+        app.init_resource::<AimState>()
+            .add_systems(Startup, (spawn_aim_indicator, spawn_aim_indicator_fill, spawn_bow_overlay))
             .add_systems(Update, update_aim);
     }
 }
@@ -153,7 +180,7 @@ fn spawn_bow_overlay(
 /// so the visible region grows from tail toward tip as `charge_elapsed` accumulates.
 fn update_aim(
     time: Res<Time>,
-    mut charge_elapsed: Local<f32>,
+    mut aim_state: ResMut<AimState>,
     input_mode: Res<InputMode>,
     action_input: Res<ActionInput>,
     input_source: Res<InputSource>,
@@ -180,7 +207,8 @@ fn update_aim(
         *ind_vis = Visibility::Hidden;
         *fill_vis = Visibility::Hidden;
         *bow_vis = Visibility::Hidden;
-        *charge_elapsed = 0.0;
+        aim_state.active = false;
+        aim_state.charge = 0.0;
         return;
     }
 
@@ -188,7 +216,8 @@ fn update_aim(
         *ind_vis = Visibility::Hidden;
         *fill_vis = Visibility::Hidden;
         *bow_vis = Visibility::Hidden;
-        *charge_elapsed = 0.0;
+        aim_state.active = false;
+        aim_state.charge = 0.0;
         return;
     };
     let player_pos = player_tf.translation.truncate();
@@ -209,6 +238,7 @@ fn update_aim(
                     *ind_vis = Visibility::Hidden;
                     *fill_vis = Visibility::Hidden;
                     *bow_vis = Visibility::Hidden;
+                    aim_state.active = false;
                     return;
                 }
             }
@@ -232,9 +262,15 @@ fn update_aim(
     ind_tf.rotation = rotation;
     *ind_vis = Visibility::Inherited;
 
-    // Accumulate charge while aim is held, capped at CHARGE_DURATION.
-    *charge_elapsed = (*charge_elapsed + time.delta_secs()).min(CHARGE_DURATION);
-    let charge = *charge_elapsed / CHARGE_DURATION;
+    // Accumulate charge while aim is held, capped at CHARGE_DURATION. The shoot
+    // system resets `aim_state.charge` to 0 after firing so the next shot must
+    // recharge from the floor — that reset still arrives here as `charge`.
+    let elapsed = (aim_state.charge * CHARGE_DURATION + time.delta_secs()).min(CHARGE_DURATION);
+    let charge = elapsed / CHARGE_DURATION;
+    aim_state.active = true;
+    aim_state.charge = charge;
+    aim_state.direction = direction;
+    aim_state.origin = player_pos;
 
     // Fill layer: pivot at the arrow tail (left end in sprite-local space).
     // Sprite.rect in tile-local coordinates clips the right side so only `charge`

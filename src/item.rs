@@ -161,6 +161,63 @@ impl Inventory {
         }
         false
     }
+
+    /// Removes a single item with the given `id` from the first slot containing it.
+    ///
+    /// Decrements that slot's `count`. If the count reaches zero, the slot is
+    /// emptied. Returns `true` if an item was removed, `false` if no slot held one.
+    pub fn take_one_by_id(&mut self, id: &str) -> bool {
+        for slot in &mut self.slots {
+            if let Some(stack) = slot {
+                if stack.id == id {
+                    if stack.count <= 1 {
+                        *slot = None;
+                    } else {
+                        stack.count -= 1;
+                    }
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Adds `count` items of `id` to the inventory, respecting `max_stack`.
+    ///
+    /// Items are merged into existing stacks of the same id first (capped at
+    /// `max_stack`), then placed in empty slots in `max_stack`-sized chunks.
+    /// Returns the leftover count that did not fit (0 on full success).
+    pub fn add_items(&mut self, id: &str, mut count: u32, max_stack: u32) -> u32 {
+        if count == 0 || max_stack == 0 {
+            return count;
+        }
+        // First pass: top off existing stacks of the same id.
+        for slot in &mut self.slots {
+            if let Some(stack) = slot {
+                if stack.id == id && stack.count < max_stack {
+                    let space = max_stack - stack.count;
+                    let take = space.min(count);
+                    stack.count += take;
+                    count -= take;
+                    if count == 0 {
+                        return 0;
+                    }
+                }
+            }
+        }
+        // Second pass: place remainder into empty slots.
+        for slot in &mut self.slots {
+            if slot.is_none() {
+                let take = max_stack.min(count);
+                *slot = Some(ItemStack::new(id, take));
+                count -= take;
+                if count == 0 {
+                    return 0;
+                }
+            }
+        }
+        count
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -278,5 +335,64 @@ mod tests {
         let s = ItemStack::new("arrow", 16);
         assert_eq!(s.id, "arrow");
         assert_eq!(s.count, 16);
+    }
+
+    #[test]
+    fn take_one_by_id_decrements_existing_stack() {
+        let mut inv = Inventory::new(2);
+        inv.put(0, Some(ItemStack::new("arrow", 3))).unwrap();
+        assert!(inv.take_one_by_id("arrow"));
+        assert_eq!(inv.get(0).unwrap().count, 2);
+    }
+
+    #[test]
+    fn take_one_by_id_clears_slot_when_empty() {
+        let mut inv = Inventory::new(2);
+        inv.put(0, Some(ItemStack::new("arrow", 1))).unwrap();
+        assert!(inv.take_one_by_id("arrow"));
+        assert!(inv.get(0).is_none());
+    }
+
+    #[test]
+    fn take_one_by_id_returns_false_when_absent() {
+        let mut inv = Inventory::new(2);
+        inv.put(0, Some(ItemStack::new("bow", 1))).unwrap();
+        assert!(!inv.take_one_by_id("arrow"));
+    }
+
+    #[test]
+    fn add_items_merges_into_existing_stack_first() {
+        let mut inv = Inventory::new(3);
+        inv.put(1, Some(ItemStack::new("arrow", 5))).unwrap();
+        let leftover = inv.add_items("arrow", 3, 64);
+        assert_eq!(leftover, 0);
+        assert!(inv.get(0).is_none());
+        assert_eq!(inv.get(1).unwrap().count, 8);
+    }
+
+    #[test]
+    fn add_items_overflow_to_empty_slot_when_stack_full() {
+        let mut inv = Inventory::new(3);
+        inv.put(0, Some(ItemStack::new("arrow", 64))).unwrap();
+        let leftover = inv.add_items("arrow", 5, 64);
+        assert_eq!(leftover, 0);
+        assert_eq!(inv.get(0).unwrap().count, 64);
+        assert_eq!(inv.get(1).unwrap().count, 5);
+    }
+
+    #[test]
+    fn add_items_returns_leftover_when_full() {
+        let mut inv = Inventory::new(1);
+        inv.put(0, Some(ItemStack::new("arrow", 64))).unwrap();
+        let leftover = inv.add_items("arrow", 5, 64);
+        assert_eq!(leftover, 5);
+    }
+
+    #[test]
+    fn add_items_zero_count_is_noop() {
+        let mut inv = Inventory::new(1);
+        let leftover = inv.add_items("arrow", 0, 64);
+        assert_eq!(leftover, 0);
+        assert!(inv.get(0).is_none());
     }
 }

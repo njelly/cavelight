@@ -22,6 +22,8 @@ cavelight/
 │   └── fonts/                      # RobotoMono font family (all weights/styles)
 ├── src/
 │   ├── main.rs                     # Entry point; app setup and plugin registration. Spawns player with PlayerLantern child light.
+│   ├── aim.rs                      # AimPlugin — bow aim indicator, charge fill, and bow overlay; writes AimState resource (active, charge, direction, origin) for the shooting system.
+│   ├── arrow.rs                    # ArrowPlugin — Shoot action consumes ammo and spawns Arrow projectiles (speed/range scale with charge); arrows fly until they hit a wall/entity, then land and can be picked up by walking onto them.
 │   ├── camera.rs                   # CameraPlugin — spawns the primary 2D camera with Light2d ambient lighting.
 │   ├── campfire.rs                 # CampfirePlugin — campfire sprite+animation at CampfireSpawnPoint; CampfireFlicker drives flickering PointLight2d child.
 │   ├── chest.rs                    # ChestPlugin — two chests: WeaponChest (bow+arrows) at WeaponChestSpawnPoint, KeyChest (key) at KeyChestSpawnPoint. Shared observer opens inventory UI on interaction.
