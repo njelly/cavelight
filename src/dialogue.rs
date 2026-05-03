@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_common_assets::ron::RonAssetPlugin;
 use serde::{Deserialize, Serialize};
 
+use crate::input::{ActionInput, GameAction};
 use crate::interaction::{InteractEvent, InteractionSet};
 use crate::inventory::{InputMode, HOTBAR_HEIGHT_VH};
 
@@ -315,15 +316,15 @@ fn on_interact_with_dialogue_source(
 // Update systems
 // ---------------------------------------------------------------------------
 
-/// Advances dialogue pages on Space press and closes the panel after the last page.
+/// Advances dialogue pages on Confirm (Space / gamepad A) and closes the panel after the last page.
 ///
 /// Runs after [`InteractionSet`] to ensure that closing dialogue on the final page
 /// cannot immediately re-trigger an interaction in the same frame.
 ///
-/// The `just_opened` guard absorbs the Space press that originally opened the dialogue,
+/// The `just_opened` guard absorbs the Confirm press that originally opened the dialogue,
 /// preventing it from also advancing to page two.
 fn advance_dialogue(
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     mut active: ResMut<ActiveDialogue>,
     mut input_mode: ResMut<InputMode>,
 ) {
@@ -332,12 +333,12 @@ fn advance_dialogue(
     }
     let Some(state) = &mut active.0 else { return };
 
-    // Absorb the Space press used to open the dialogue — do not advance yet.
+    // Absorb the Confirm press used to open the dialogue — do not advance yet.
     if state.consume_just_opened() {
         return;
     }
 
-    if !keys.just_pressed(KeyCode::Space) {
+    if !action_input.just_pressed(GameAction::Confirm) {
         return;
     }
 

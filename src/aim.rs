@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::input::{ActionInput, GameAction};
 use crate::inventory::{EquippedHotbarSlot, InputMode, HOTBAR_START};
 use crate::item::{Inventory, ItemLibrary};
 use crate::player_input::PlayerControlled;
@@ -54,11 +55,11 @@ fn spawn_aim_indicator(
 
 /// Positions the aim indicator to orbit the player toward the mouse cursor.
 ///
-/// Active only while `InputMode::Playing`, Shift is held, and the equipped hotbar
-/// item has a non-`None` `ammo_id`. Hides the indicator when any condition fails.
+/// Active only while `InputMode::Playing`, Aim is held (Shift or LT), and the equipped
+/// hotbar item has a non-`None` `ammo_id`. Hides the indicator when any condition fails.
 fn update_aim(
     input_mode: Res<InputMode>,
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     equipped: Res<EquippedHotbarSlot>,
     item_library: Option<Res<ItemLibrary>>,
     player_query: Query<(&Transform, &Inventory), With<PlayerControlled>>,
@@ -68,7 +69,7 @@ fn update_aim(
 ) {
     let Ok((mut ind_tf, mut ind_vis)) = indicator_query.single_mut() else { return };
 
-    let shift_held = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let shift_held = action_input.pressed(GameAction::Aim);
 
     // Determine whether aiming conditions are met.
     let aiming = *input_mode == InputMode::Playing

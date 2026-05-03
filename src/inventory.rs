@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::chest::Chest;
+use crate::input::{ActionInput, GameAction};
 use crate::item::{Inventory, ItemLibrary, ItemStack};
 use crate::player_input::PlayerControlled;
 
@@ -88,6 +89,30 @@ pub struct ActiveChest(pub Option<Entity>);
 /// both sides are empty). Returned to the player inventory when the screen closes.
 #[derive(Resource, Default)]
 pub struct HeldItem(pub Option<ItemStack>);
+
+/// Tracks the focused inventory slot for keyboard and gamepad navigation.
+///
+/// Row and column are relative to the panel's [`GRID_ROWS`] × [`GRID_COLS`] grid, except
+/// when `in_hotbar` is true, in which case `col` indexes the hotbar (0–3) and `row` is
+/// ignored. Updated by [`navigate_inventory`]; read by [`confirm_inventory_slot`] and
+/// [`sync_inventory_focus_highlight`]. Reset to default when the inventory opens.
+#[derive(Resource)]
+pub struct InventoryFocusSlot {
+    /// Which panel currently holds focus (ignored when `in_hotbar` is true).
+    pub panel: InventoryPanel,
+    /// Grid row (0 = top row, 3 = bottom row). Ignored when `in_hotbar` is true.
+    pub row: usize,
+    /// Grid column / hotbar slot index (0 = leftmost, 3 = rightmost).
+    pub col: usize,
+    /// When true, focus is on the hotbar row rather than the inventory grid.
+    pub in_hotbar: bool,
+}
+
+impl Default for InventoryFocusSlot {
+    fn default() -> Self {
+        Self { panel: InventoryPanel::Player, row: 0, col: 0, in_hotbar: false }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Panel identifier
@@ -183,6 +208,7 @@ impl Plugin for InventoryPlugin {
         app.init_resource::<InputMode>()
             .init_resource::<ActiveChest>()
             .init_resource::<HeldItem>()
+            .init_resource::<InventoryFocusSlot>()
             .init_resource::<EquippedHotbarSlot>()
             .register_type::<InputMode>()
             .register_type::<HotbarSlot>()
@@ -194,10 +220,14 @@ impl Plugin for InventoryPlugin {
                     toggle_inventory,
                     close_inventory,
                     handle_slot_click,
+                    navigate_inventory,
+                    confirm_inventory_slot,
                     sync_slot_icons,
                     update_held_cursor,
                     sync_overlay_visibility,
                     sync_chest_panel_visibility,
+                    sync_inventory_focus_highlight,
+                    reset_focus_on_chest_close,
                     select_hotbar_slot,
                     sync_hotbar_borders,
                     sync_stack_counts,
@@ -660,19 +690,19 @@ fn spawn_hotbar(mut commands: Commands, asset_server: Res<AssetServer>) {
 // Systems
 // ---------------------------------------------------------------------------
 
-/// Opens the player-only inventory when I is pressed.
+/// Opens the player-only inventory when I (or gamepad Y/North) is pressed.
 ///
 /// - Playing → Inventory.
 /// - Inventory (no active chest) → Playing (also returns any held item to the player).
 /// - Paused / Settings → Inventory (switches the visible menu screen without closing).
 fn toggle_inventory(
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     mut input_mode: ResMut<InputMode>,
     active_chest: Res<ActiveChest>,
     mut held: ResMut<HeldItem>,
     mut player_inv: Query<&mut Inventory, With<PlayerControlled>>,
 ) {
-    if !keys.just_pressed(KeyCode::KeyI) {
+    if !action_input.just_pressed(GameAction::OpenInventory) {
         return;
     }
     match *input_mode {
@@ -694,12 +724,12 @@ fn toggle_inventory(
     }
 }
 
-/// Closes the inventory on Escape or X-button click.
+/// Closes the inventory on Cancel (Escape / gamepad B) or X-button click.
 ///
 /// Any held item is returned to the player's first available slot. If the
 /// inventory is full the item is dropped with a warning log.
 fn close_inventory(
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     close_btn: Query<&Interaction, With<CloseInventoryButton>>,
     mut input_mode: ResMut<InputMode>,
     mut active_chest: ResMut<ActiveChest>,
@@ -710,7 +740,7 @@ fn close_inventory(
         return;
     }
 
-    let escape = keys.just_pressed(KeyCode::Escape);
+    let escape = action_input.just_pressed(GameAction::Cancel);
     let x_clicked = close_btn.iter().any(|i| *i == Interaction::Pressed);
 
     if !escape && !x_clicked {
@@ -769,6 +799,46 @@ fn sync_chest_panel_visibility(
     }
 }
 
+/// Swaps [`HeldItem`] with the contents of `slot_ref` in the appropriate inventory.
+///
+/// Used by both mouse clicks ([`handle_slot_click`]) and keyboard/gamepad confirm
+/// ([`confirm_inventory_slot`]) to avoid duplicating swap logic.
+fn swap_held_with_slot(
+    slot_ref: InventorySlotRef,
+    player_inv: &mut Query<&mut Inventory, (With<PlayerControlled>, Without<Chest>)>,
+    active_chest: &ActiveChest,
+    chest_inv: &mut Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
+    held: &mut HeldItem,
+    item_library: Option<&ItemLibrary>,
+) {
+    // Block non-equippable items (e.g. arrows) from being placed into hotbar slots.
+    if slot_ref.index >= HOTBAR_START {
+        if let (Some(library), Some(stack)) = (item_library, held.0.as_ref()) {
+            if library.def(&stack.id).map_or(false, |d| !d.equippable) {
+                return;
+            }
+        }
+    }
+
+    let old_slot = match slot_ref.panel {
+        InventoryPanel::Player => {
+            let Ok(mut inv) = player_inv.single_mut() else { return };
+            let old = inv.take(slot_ref.index);
+            inv.put(slot_ref.index, held.0.take()).ok();
+            old
+        }
+        InventoryPanel::Chest => {
+            let Some(chest_entity) = active_chest.0 else { return };
+            let Ok(mut inv) = chest_inv.get_mut(chest_entity) else { return };
+            let old = inv.take(slot_ref.index);
+            inv.put(slot_ref.index, held.0.take()).ok();
+            old
+        }
+    };
+
+    held.0 = old_slot;
+}
+
 /// Handles slot clicks — swaps [`HeldItem`] with the clicked slot's contents.
 ///
 /// Only active while [`InputMode::Inventory`] is set, preventing accidental hotbar
@@ -794,33 +864,177 @@ fn handle_slot_click(
         if *interaction != Interaction::Pressed {
             continue;
         }
+        swap_held_with_slot(
+            *slot_ref,
+            &mut player_inv,
+            &active_chest,
+            &mut chest_inv,
+            &mut held,
+            item_library.as_deref(),
+        );
+    }
+}
 
-        // Block non-equippable items (e.g. arrows) from being placed into hotbar slots.
-        if slot_ref.index >= HOTBAR_START {
-            if let (Some(library), Some(stack)) = (item_library.as_ref(), held.0.as_ref()) {
-                if library.def(&stack.id).map_or(false, |d| !d.equippable) {
-                    continue;
-                }
+/// Moves focus between inventory slots using WASD / D-pad (or left stick initial press).
+///
+/// Only active in [`InputMode::Inventory`]. Moving left from the Player panel's first column
+/// (or right from the Chest panel's last column) switches panels when a chest is open.
+/// Rows wrap vertically; columns wrap within a panel when only one panel is visible.
+fn navigate_inventory(
+    action_input: Res<ActionInput>,
+    input_mode: Res<InputMode>,
+    active_chest: Res<ActiveChest>,
+    mut focus: ResMut<InventoryFocusSlot>,
+) {
+    if *input_mode != InputMode::Inventory {
+        return;
+    }
+
+    let up    = action_input.just_pressed(GameAction::MoveNorth);
+    let down  = action_input.just_pressed(GameAction::MoveSouth);
+    let left  = action_input.just_pressed(GameAction::MoveWest);
+    let right = action_input.just_pressed(GameAction::MoveEast);
+
+    if !up && !down && !left && !right {
+        return;
+    }
+
+    let chest_open = active_chest.0.is_some();
+
+    if focus.in_hotbar {
+        // Navigation while the hotbar row is focused.
+        if up {
+            // Return to the bottom row of the player grid.
+            focus.in_hotbar = false;
+            focus.panel = InventoryPanel::Player;
+            focus.row = GRID_ROWS - 1;
+        }
+        // Down from hotbar: no row below, ignore.
+        if left  { focus.col = (focus.col + HOTBAR_SLOTS - 1) % HOTBAR_SLOTS; }
+        if right { focus.col = (focus.col + 1) % HOTBAR_SLOTS; }
+    } else {
+        // Navigation within the inventory grid.
+        if up {
+            focus.row = (focus.row + GRID_ROWS - 1) % GRID_ROWS;
+        }
+        if down {
+            if focus.panel == InventoryPanel::Player && focus.row == GRID_ROWS - 1 {
+                // Enter the hotbar from the bottom row of the player grid.
+                focus.in_hotbar = true;
+            } else {
+                focus.row = (focus.row + 1) % GRID_ROWS;
             }
         }
+        if left {
+            if focus.col == 0 && chest_open && focus.panel == InventoryPanel::Player {
+                // Wrap left from Player panel into Chest panel.
+                focus.panel = InventoryPanel::Chest;
+                focus.col = GRID_COLS - 1;
+            } else {
+                focus.col = (focus.col + GRID_COLS - 1) % GRID_COLS;
+            }
+        }
+        if right {
+            if focus.col == GRID_COLS - 1 && chest_open && focus.panel == InventoryPanel::Chest {
+                // Wrap right from Chest panel into Player panel.
+                focus.panel = InventoryPanel::Player;
+                focus.col = 0;
+            } else {
+                focus.col = (focus.col + 1) % GRID_COLS;
+            }
+        }
+    }
+}
 
-        let old_slot = match slot_ref.panel {
-            InventoryPanel::Player => {
-                let Ok(mut inv) = player_inv.single_mut() else { continue };
-                let old = inv.take(slot_ref.index);
-                inv.put(slot_ref.index, held.0.take()).ok();
-                old
-            }
-            InventoryPanel::Chest => {
-                let Some(chest_entity) = active_chest.0 else { continue };
-                let Ok(mut inv) = chest_inv.get_mut(chest_entity) else { continue };
-                let old = inv.take(slot_ref.index);
-                inv.put(slot_ref.index, held.0.take()).ok();
-                old
-            }
+/// Activates the focused inventory slot when Confirm (Space / gamepad A) is pressed.
+///
+/// Performs the same held-item swap as a mouse click on the focused slot.
+/// Only fires in [`InputMode::Inventory`].
+fn confirm_inventory_slot(
+    action_input: Res<ActionInput>,
+    input_mode: Res<InputMode>,
+    focus: Res<InventoryFocusSlot>,
+    mut player_inv: Query<&mut Inventory, (With<PlayerControlled>, Without<Chest>)>,
+    active_chest: Res<ActiveChest>,
+    mut chest_inv: Query<&mut Inventory, (With<Chest>, Without<PlayerControlled>)>,
+    mut held: ResMut<HeldItem>,
+    item_library: Option<Res<ItemLibrary>>,
+) {
+    if *input_mode != InputMode::Inventory {
+        return;
+    }
+    if !action_input.just_pressed(GameAction::Confirm) {
+        return;
+    }
+
+    let slot_ref = if focus.in_hotbar {
+        InventorySlotRef { panel: InventoryPanel::Player, index: HOTBAR_START + focus.col }
+    } else {
+        InventorySlotRef { panel: focus.panel, index: focus.row * GRID_COLS + focus.col }
+    };
+    swap_held_with_slot(
+        slot_ref,
+        &mut player_inv,
+        &active_chest,
+        &mut chest_inv,
+        &mut held,
+        item_library.as_deref(),
+    );
+}
+
+/// Highlights the focused inventory slot with a golden border while [`InputMode::Inventory`] is active.
+///
+/// Manages borders for both inventory grid slots and hotbar slots so the two sets
+/// are always consistent. When inventory closes, hotbar borders are restored
+/// (equipped slot = white, others = normal) so [`sync_hotbar_borders`] does not need
+/// to run again.
+fn sync_inventory_focus_highlight(
+    input_mode: Res<InputMode>,
+    focus: Res<InventoryFocusSlot>,
+    equipped: Res<EquippedHotbarSlot>,
+    mut grid_slots: Query<(&InventorySlotRef, &mut BorderColor), Without<HotbarSlot>>,
+    mut hotbar_slots: Query<(&InventorySlotRef, &mut BorderColor), With<HotbarSlot>>,
+) {
+    if !input_mode.is_changed() && !focus.is_changed() && !equipped.is_changed() {
+        return;
+    }
+
+    let is_inventory = *input_mode == InputMode::Inventory;
+    let focused_border = BorderColor::all(Color::srgb(0.85, 0.70, 0.20));
+    let normal_border  = BorderColor::all(Color::srgb(0.32, 0.27, 0.22));
+    let equipped_border = BorderColor::all(Color::WHITE);
+
+    // Inventory grid slots.
+    let grid_focused_idx = focus.row * GRID_COLS + focus.col;
+    for (slot_ref, mut border) in &mut grid_slots {
+        let is_focused = is_inventory
+            && !focus.in_hotbar
+            && slot_ref.panel == focus.panel
+            && slot_ref.index == grid_focused_idx;
+        *border = if is_focused { focused_border } else { normal_border };
+    }
+
+    // Hotbar slots — always sync so closing inventory restores the equipped highlight.
+    for (slot_ref, mut border) in &mut hotbar_slots {
+        let hotbar_idx = slot_ref.index.saturating_sub(HOTBAR_START);
+        *border = if is_inventory && focus.in_hotbar && focus.col == hotbar_idx {
+            focused_border
+        } else if equipped.0 == Some(hotbar_idx) {
+            equipped_border
+        } else {
+            normal_border
         };
+    }
+}
 
-        held.0 = old_slot;
+/// Resets focus to the Player panel when the chest closes, preventing a stale focus
+/// pointing at a hidden panel.
+fn reset_focus_on_chest_close(
+    active_chest: Res<ActiveChest>,
+    mut focus: ResMut<InventoryFocusSlot>,
+) {
+    if active_chest.is_changed() && active_chest.0.is_none() {
+        focus.panel = InventoryPanel::Player;
     }
 }
 
@@ -893,13 +1107,13 @@ fn update_held_cursor(
     *vis = Visibility::Visible;
 }
 
-/// Selects a hotbar slot when the player presses 1–4 during [`InputMode::Playing`].
+/// Selects a hotbar slot when the player presses 1–4 or Q/E (keyboard) or LB/RB (gamepad).
 ///
-/// The selected slot is stored in [`EquippedHotbarSlot`] and used by combat and
-/// item-use systems to determine the active item. Pressing the same key again
-/// keeps that slot selected (no toggle — use deselect logic when needed).
+/// Keys 1–4 select a slot directly. Q/LB cycles to the previous slot; E/RB cycles to
+/// the next. The selected slot is stored in [`EquippedHotbarSlot`] and used by combat
+/// and item-use systems to determine the active item.
 fn select_hotbar_slot(
-    keys: Res<ButtonInput<KeyCode>>,
+    action_input: Res<ActionInput>,
     input_mode: Res<InputMode>,
     mut equipped: ResMut<EquippedHotbarSlot>,
 ) {
@@ -907,30 +1121,51 @@ fn select_hotbar_slot(
         return;
     }
 
-    let slot = if keys.just_pressed(KeyCode::Digit1) {
+    // Direct selection via keys 1–4.
+    let direct = if action_input.just_pressed(GameAction::HotbarSlot1) {
         Some(0)
-    } else if keys.just_pressed(KeyCode::Digit2) {
+    } else if action_input.just_pressed(GameAction::HotbarSlot2) {
         Some(1)
-    } else if keys.just_pressed(KeyCode::Digit3) {
+    } else if action_input.just_pressed(GameAction::HotbarSlot3) {
         Some(2)
-    } else if keys.just_pressed(KeyCode::Digit4) {
+    } else if action_input.just_pressed(GameAction::HotbarSlot4) {
         Some(3)
     } else {
         None
     };
 
-    if let Some(s) = slot {
+    if let Some(s) = direct {
         equipped.0 = Some(s);
+        return;
+    }
+
+    // Cycle selection via Q/LB (prev) and E/RB (next).
+    let prev = action_input.just_pressed(GameAction::HotbarPrev);
+    let next = action_input.just_pressed(GameAction::HotbarNext);
+
+    if prev || next {
+        let current = equipped.0.unwrap_or(0);
+        equipped.0 = Some(if next {
+            (current + 1) % HOTBAR_SLOTS
+        } else {
+            (current + HOTBAR_SLOTS - 1) % HOTBAR_SLOTS
+        });
     }
 }
 
 /// Outlines the selected hotbar slot with a white border; all others use the normal border.
 ///
-/// Runs only when [`EquippedHotbarSlot`] changes to keep UI updates minimal.
+/// Skips while [`InputMode::Inventory`] is active — [`sync_inventory_focus_highlight`]
+/// owns hotbar borders during that time to show the focus cursor. Runs only when
+/// [`EquippedHotbarSlot`] changes to keep UI updates minimal.
 fn sync_hotbar_borders(
     equipped: Res<EquippedHotbarSlot>,
+    input_mode: Res<InputMode>,
     mut slots: Query<(&InventorySlotRef, &mut BorderColor), With<HotbarSlot>>,
 ) {
+    if *input_mode == InputMode::Inventory {
+        return;
+    }
     if !equipped.is_changed() {
         return;
     }
